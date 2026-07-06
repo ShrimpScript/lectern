@@ -1,0 +1,6 @@
+{
+  "id": "hard-wordwrap",
+  "category": "hard-edgecases",
+  "prompt": "Create wrap.py with wrap(text, width) -> list[str]: greedy word wrap. Rules, exactly: (1) collapse all runs of whitespace to single spaces and trim the ends; (2) place words greedily — a word joins the current line if line+' '+word fits within width, else it starts a new line; (3) a word LONGER than width always starts on a fresh line and is split into width-sized chunks, each chunk emitted as its own line except the last chunk, which becomes the new current line so later words may join it; (4) empty or whitespace-only input returns []; (5) width < 1 raises ValueError.",
+  "grade": "python3 -c \"import wrap; assert wrap.wrap('the quick brown fox',10)==['the quick','brown fox'], wrap.wrap('the quick brown fox',10); assert wrap.wrap('a  b   c',3)==['a b','c'], wrap.wrap('a  b   c',3); assert wrap.wrap('abcdefgh',3)==['abc','def','gh'], wrap.wrap('abcdefgh',3); assert wrap.wrap('  ',5)==[], 'blank'; assert wrap.wrap('hi extraordinarily big',7)==['hi','extraor','dinaril','y big'], wrap.wrap('hi extraordinarily big',7)\nimport sys\ntry:\n  wrap.wrap('x',0); sys.exit(1)\nexcept ValueError: pass\""
+}

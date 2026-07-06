@@ -1,0 +1,6 @@
+{
+  "id": "hard-fix-tests",
+  "category": "hard-bugfix",
+  "prompt": "Running `python3 tests.py` fails. Fix the bugs in inventory.py (do not modify tests.py) until all tests pass.",
+  "grade": "python3 tests.py"
+}

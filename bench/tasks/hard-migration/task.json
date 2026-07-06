@@ -1,0 +1,6 @@
+{
+  "id": "hard-migration",
+  "category": "hard-refactor",
+  "prompt": "config.py holds a flat v1 config format. Write migrate.py with migrate(v1: dict) -> dict converting to the v2 format: keys 'db_host','db_port' move under cfg['database']={'host':...,'port':...}; 'log_level' becomes cfg['logging']={'level': <lowercased>}; the deprecated key 'use_ssl' maps to cfg['database']['tls'] (bool); any keys not recognized go under cfg['extra'] unchanged; missing db_port defaults to 5432; the function must not mutate its input.",
+  "grade": "python3 -c \"import migrate; v1={'db_host':'h','log_level':'INFO','use_ssl':True,'custom':7}; out=migrate.migrate(v1); assert out['database']=={'host':'h','port':5432,'tls':True}, out; assert out['logging']=={'level':'info'}, out; assert out['extra']=={'custom':7}, out; assert v1=={'db_host':'h','log_level':'INFO','use_ssl':True,'custom':7}, 'input mutated'\""
+}

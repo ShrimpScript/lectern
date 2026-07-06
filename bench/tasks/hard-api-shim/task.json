@@ -1,0 +1,6 @@
+{
+  "id": "hard-api-shim",
+  "category": "hard-refactor",
+  "prompt": "geometry.py exposes area_rect(w,h) and area_circle(r), used by callers.py. Refactor: create a new module shapes.py with a class API — Rect(w,h).area() and Circle(r).area() — move the math there, make geometry.py a thin compatibility shim that delegates to shapes (keeping the old functions working with a DeprecationWarning via warnings.warn), and update callers.py to use the new shapes API directly (it must not import geometry).",
+  "grade": "python3 -c \"import warnings, shapes, callers, geometry, inspect; assert shapes.Rect(3,4).area()==12 and abs(shapes.Circle(1).area()-3.141592653589793)<1e-9; assert callers.summary()==12+25; src=inspect.getsource(callers); assert 'geometry' not in src, 'callers must not import geometry'; w=warnings.catch_warnings(record=True); l=w.__enter__(); warnings.simplefilter('always'); assert geometry.area_rect(3,4)==12; assert any(issubclass(x.category, DeprecationWarning) for x in l), 'shim must warn'; w.__exit__(None,None,None)\""
+}

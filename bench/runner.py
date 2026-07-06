@@ -38,7 +38,50 @@ ARMS = {
                "--apply", "--yolo", "--fast"],
     "conductor": ["conduct", "--backend", "{backend}", "--model", "{model}",
                   "--apply", "--yolo"],
+    # Standalone agent baselines — the agent CLI driven directly, no Lectern.
+    # These measure what Lectern adds (context, brain, orchestration) on top of
+    # the same underlying agent, and use subscription auth (no API keys).
+    "raw-claude": None,
 }
+
+
+def run_raw_claude(task, ws, metrics_path, env, timeout, model):
+    """`claude -p` headless with JSON output — the no-Lectern baseline."""
+    argv = ["claude", "-p", task["prompt"], "--output-format", "json",
+            "--dangerously-skip-permissions"]
+    if model:
+        argv += ["--model", model]
+    t0 = time.time()
+    proc = subprocess.Popen(argv, cwd=ws, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, env=env,
+                            start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        rc = proc.returncode
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        out, err = proc.communicate()
+        rc, err = 124, (err or "") + " TIMEOUT"
+    wall = round(time.time() - t0, 2)
+    # Translate the CLI's result JSON into the same metrics shape.
+    metrics = {"mode": "raw-claude", "backend": "claude-cli", "success": rc == 0}
+    try:
+        d = json.loads(out)
+        u = d.get("usage", {})
+        metrics["input_tokens"] = u.get("input_tokens", 0)
+        metrics["output_tokens"] = u.get("output_tokens", 0)
+        metrics["total_tokens"] = metrics["input_tokens"] + metrics["output_tokens"]
+        metrics["cache_read_tokens"] = u.get("cache_read_input_tokens", 0)
+        metrics["cache_creation_tokens"] = u.get("cache_creation_input_tokens", 0)
+        metrics["tool_calls"] = d.get("num_turns")
+        metrics["wall_ms"] = d.get("duration_ms", int(wall * 1000))
+    except (json.JSONDecodeError, TypeError):
+        metrics["error"] = "unparseable CLI output"
+    metrics_path.write_text(json.dumps(metrics, indent=2))
+    return rc, wall, (err or "")[-500:]
 
 
 def load_tasks(only_ids):
@@ -73,7 +116,9 @@ def seed_workspace(task, ws):
 
 
 def run_arm(lectern, task, arm, backend, model, ws, metrics_path, env, timeout):
-    """Invoke the Lectern CLI for one arm; return (exit_code, wall_seconds, stderr_tail)."""
+    """Invoke the CLI for one arm; return (exit_code, wall_seconds, stderr_tail)."""
+    if arm == "raw-claude":
+        return run_raw_claude(task, ws, metrics_path, env, timeout, model)
     tmpl = ARMS[arm]
     argv = [lectern]
     i = 0

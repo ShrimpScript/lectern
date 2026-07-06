@@ -1,0 +1,6 @@
+{
+  "id": "hard-pipeline",
+  "category": "hard-multifile",
+  "prompt": "Build a three-module pipeline. In parser.py: parse_record(s) parses 'key=value;key2=value2' strings into a dict (whitespace around keys/values is stripped; empty segments are ignored; a segment without '=' raises ValueError with the segment text in the message). In validator.py: validate(record) checks that 'id' exists and is all digits, 'name' exists and is non-empty; it returns a list of error strings, each formatted exactly '<field>: <problem>' where problem is 'missing' or 'invalid'; a valid record returns []. In pipeline.py: process(lines) uses parser and validator, returning a dict {'ok': [records that validated], 'errors': [(line_index, [error strings])] } where line_index is the 0-based index of the offending line; lines that fail to parse count as errors with ['parse: invalid'].",
+  "grade": "python3 -c \"import pipeline; r=pipeline.process(['id=12;name=Ada',' id = 7 ; name = Bo ','id=x;name=C','name=D','junk']); assert r['ok']==[{'id':'12','name':'Ada'},{'id':'7','name':'Bo'}], r['ok']; assert r['errors'][0]==(2,['id: invalid']), r['errors']; assert r['errors'][1]==(3,['id: missing']), r['errors']; assert r['errors'][2]==(4,['parse: invalid']), r['errors']\""
+}

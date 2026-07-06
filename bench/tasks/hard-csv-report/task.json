@@ -1,0 +1,6 @@
+{
+  "id": "hard-csv-report",
+  "category": "hard-data",
+  "prompt": "Read sales.csv (columns region,amount — amount is a decimal string) and write report.py with build_report(csv_path) -> dict: {'totals': {region: total as integer cents}, 'top': the region with the highest total (ties broken alphabetically), 'grand_cents': sum of all}. Parse decimals exactly (no float rounding errors — '19.99' is 1999 cents).",
+  "grade": "python3 -c \"import report; r=report.build_report('sales.csv'); assert r['totals']=={'east':5000,'north':3108,'west':5000}, r['totals']; assert r['top']=='east', r['top']; assert r['grand_cents']==13108, r\""
+}
