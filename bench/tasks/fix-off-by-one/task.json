@@ -1,0 +1,6 @@
+{
+  "id": "fix-off-by-one",
+  "category": "bugfix",
+  "prompt": "The function sum_to(n) in mathutil.py should return the sum of the integers from 1 to n inclusive, but it has an off-by-one bug. Fix it so sum_to(5) == 15.",
+  "grade": "python3 -c \"import mathutil as m; assert m.sum_to(5)==15 and m.sum_to(1)==1 and m.sum_to(0)==0, m.sum_to(5)\""
+}

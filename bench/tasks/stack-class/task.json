@@ -1,0 +1,6 @@
+{
+  "id": "stack-class",
+  "category": "feature",
+  "prompt": "Create stack.py with a Stack class supporting push(x), pop(), peek(), and is_empty(). Calling pop() or peek() on an empty stack should raise IndexError.",
+  "grade": "python3 -c \"import stack; s=stack.Stack(); assert s.is_empty(); s.push(1); s.push(2); assert s.peek()==2 and s.pop()==2 and s.pop()==1 and s.is_empty()\""
+}

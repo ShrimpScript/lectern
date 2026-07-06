@@ -35,7 +35,8 @@ DEFAULT_LECTERN = os.environ.get("LECTERN_BIN", str((REPO / "target/debug/lecter
 ARMS = {
     "single": ["run", "--backend", "{backend}", "--model", "{model}",
                "--apply", "--yolo", "--fast"],
-    "conductor": ["conduct", "--backend", "{backend}", "--apply", "--yolo"],
+    "conductor": ["conduct", "--backend", "{backend}", "--model", "{model}",
+                  "--apply", "--yolo"],
 }
 
 
@@ -73,7 +74,15 @@ def seed_workspace(task, ws):
 def run_arm(lectern, task, arm, backend, model, ws, metrics_path, env, timeout):
     """Invoke the Lectern CLI for one arm; return (exit_code, wall_seconds, stderr_tail)."""
     tmpl = ARMS[arm]
-    argv = [lectern] + [a.format(backend=backend, model=model) for a in tmpl]
+    argv = [lectern]
+    i = 0
+    while i < len(tmpl):
+        a = tmpl[i]
+        if a == "--model" and not model:  # drop --model when no model given
+            i += 2
+            continue
+        argv.append(a.format(backend=backend, model=model))
+        i += 1
     argv += [task["prompt"], "--metrics-out", str(metrics_path)]
     t0 = time.time()
     try:

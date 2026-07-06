@@ -1,0 +1,6 @@
+{
+  "id": "cross-file-slug",
+  "category": "cross-file",
+  "prompt": "In utils.py add a function slugify(s) that returns s lowercased with spaces replaced by hyphens. Then in main.py, implement make_slug(s) so it calls utils.slugify. Do not duplicate the logic in main.py.",
+  "grade": "python3 -c \"import main, utils; assert utils.slugify('Hello World')=='hello-world'; assert main.make_slug('A B C')=='a-b-c'; import inspect; assert 'slugify' in inspect.getsource(main.make_slug)\""
+}

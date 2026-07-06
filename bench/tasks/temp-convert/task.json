@@ -1,0 +1,6 @@
+{
+  "id": "temp-convert",
+  "category": "feature",
+  "prompt": "Create temp.py with two functions: c_to_f(c) converts Celsius to Fahrenheit, and f_to_c(f) converts Fahrenheit to Celsius.",
+  "grade": "python3 -c \"import temp; assert temp.c_to_f(100)==212 and temp.c_to_f(0)==32 and temp.f_to_c(32)==0 and temp.f_to_c(212)==100\""
+}

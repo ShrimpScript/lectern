@@ -1,0 +1,6 @@
+{
+  "id": "fizzbuzz",
+  "category": "feature",
+  "prompt": "Create fizzbuzz.py with a function fizzbuzz(n) returning a list of length n. For each i from 1 to n, the element is 'FizzBuzz' if i is divisible by 15, 'Fizz' if by 3, 'Buzz' if by 5, otherwise str(i).",
+  "grade": "python3 -c \"import fizzbuzz as f; r=f.fizzbuzz(15); assert r[0]=='1' and r[2]=='Fizz' and r[4]=='Buzz' and r[14]=='FizzBuzz', r\""
+}

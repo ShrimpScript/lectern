@@ -265,6 +265,10 @@ enum Cmd {
         /// Backend for steps when routing is unavailable (default: auto).
         #[arg(short, long, default_value = "auto")]
         backend: String,
+        /// Pin every step (including cross-review) to this model when --backend is not "auto".
+        /// Lets the Conductor run its full structure on one free model for $0 benchmarking.
+        #[arg(long)]
+        model: Option<String>,
         /// Write a machine-readable run report (tokens, per-step routing, review) to this JSON file.
         #[arg(long)]
         metrics_out: Option<PathBuf>,
@@ -472,8 +476,17 @@ fn run() -> Result<()> {
             apply,
             yolo,
             backend,
+            model,
             metrics_out,
-        } => cmd_conduct(prompt.join(" "), &path, apply, yolo, &backend, metrics_out),
+        } => cmd_conduct(
+            prompt.join(" "),
+            &path,
+            apply,
+            yolo,
+            &backend,
+            model,
+            metrics_out,
+        ),
         Cmd::LearnSystem => cmd_learn_system(),
     }
 }
@@ -518,6 +531,7 @@ fn cmd_conduct(
     apply: bool,
     yolo: bool,
     backend: &str,
+    model: Option<String>,
     metrics_out: Option<PathBuf>,
 ) -> Result<()> {
     if prompt.trim().is_empty() {
@@ -533,12 +547,15 @@ fn cmd_conduct(
     println!();
     // Backend factory: "auto" honors the Conductor's per-step routing (harness+model);
     // any other --backend pins every step to that backend (forces mock/antigravity/claude).
+    let pinned_model = model.clone();
     let make = move |b: &str, m: Option<String>| -> Box<dyn Backend> {
         let routed = backend == "auto";
         let use_backend = if routed { b } else { backend };
         let flags = RunFlags {
             fast: true,
-            model: if routed { m } else { None },
+            // Auto routing keeps the engine's per-step model; a pinned backend uses
+            // --model (if given) for every step, else the backend's default.
+            model: if routed { m } else { pinned_model.clone() },
             yolo,
             fallback_model: None,
         };
