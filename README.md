@@ -77,6 +77,10 @@ nix run github:ShrimpScript/lectern -- doctor
 
 **Desktop app** — grab an installer from the [latest release](https://github.com/ShrimpScript/lectern/releases/latest): AppImage / `.deb` (Linux), `.exe` (Windows, unsigned — "More info → Run anyway"), `.dmg` (macOS Apple Silicon, unsigned — right-click → Open).
 
+> **AppImage note:** browsers strip the execute permission from downloads, so it won't open until you
+> `chmod +x Lectern_*.AppImage` (or right-click → Properties → Permissions → *Allow executing file as
+> program*). Verify any download with the release's `SHA256SUMS.txt`.
+
 ## Quickstart (from a fresh clone)
 ```bash
 git clone https://github.com/ShrimpScript/lectern && cd lectern
