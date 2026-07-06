@@ -1,0 +1,22 @@
+[package]
+name = "lectern-desktop"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/ShrimpScript/lectern"
+description = "Lectern desktop app (Tauri v2) — embeds the Lectern engine."
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+portable-pty = "0.8"
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+lectern-engine = { path = "../../../crates/engine" }
+
+[features]
+# enable the "custom-protocol" feature for production builds (Tauri convention)
+custom-protocol = ["tauri/custom-protocol"]

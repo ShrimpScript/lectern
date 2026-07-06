@@ -1,0 +1,39 @@
+# Rust
+/target
+**/target
+**/*.tsbuildinfo
+
+# Node / web / desktop frontend
+node_modules
+**/node_modules
+**/.next
+**/dist
+**/out
+
+# Local data, secrets, env
+**/.data
+.env
+**/.env
+**/.env*.local
+
+# Lectern-generated native skills (materialized from the skills DB on each run)
+**/.claude/skills/lectern-*
+
+# Editor / OS
+.DS_Store
+**/.DS_Store
+*.swp
+.idea
+.vscode
+
+# Session/tooling artifacts (G6 hygiene)
+graphify-out/
+.graphifyignore
+MEMORY.md.tmp
+skills-lock.json
+
+# Local tooling / agent instructions — not part of the product, keep out of git.
+.agent/
+CLAUDE.md
+AGENTS.md
+MEMORY.md

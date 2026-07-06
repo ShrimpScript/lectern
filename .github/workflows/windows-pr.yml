@@ -1,0 +1,34 @@
+# The keep-it-green rule — every PR that touches the engine,
+# CLI, TUI, or lockfiles proves Windows compile+test before merge. Windows
+# runners bill 2× minutes , which is acceptable for the cross-platform
+# coverage it provides. (macOS is 10× — it runs weekly + on dispatch
+# in cross-platform.yml instead.)
+name: Windows (PR)
+
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "apps/tui/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/windows-pr.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: "10"
+  RUSTUP_MAX_RETRIES: "10"
+
+jobs:
+  engine:
+    name: Engine · Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # P2a: lecternd speaks TCP+token on Windows — full workspace-side coverage.
+      - name: Check + test (engine + CLI + daemon)
+        run: |
+          cargo check -p lectern-engine -p lectern -p lecternd --locked
+          cargo test -p lectern-engine -p lectern -p lecternd --locked

@@ -1,0 +1,30 @@
+ ⌊⌋ lectern  ·  build a settings page  ·  lectern-tui-drive-ws                                    ^S sessions
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│     ┌─ models — filter · ↑↓ · enter · esc ─────────────────┐                                               │
+│ you │                                                      │                                               │
+│   Do│ ▸ ▏                                                  │, wired into the router. 24 tests pass.        │
+│   · │                                                      │                                               │
+│   do│   Auto — best model per task                         │                                               │
+│     │   Fable 5  · claude-code                             │                                               │
+│     │   Opus 4.8  · claude-code                            │                                               │
+│     │   Haiku 4.5  · claude-code                           │                                               │
+│     │   Deepseek V4 Flash (free)  · opencode               │                                               │
+│     │   Mimo V2.5 (free)  · opencode                       │                                               │
+│     │   Nemotron 3 Ultra (free)  · opencode                │                                               │
+│     │   North Mini Code (free)  · opencode                 │                                               │
+│     │                                                      │                                               │
+│     └──────────────────────────────────────────────────────┘                                               │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌─ plan mode ────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ what should we build?  (/help for commands)                                                                │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ auto  ·  plan  ·  ctx 0%  ·  clean                                                                     ready

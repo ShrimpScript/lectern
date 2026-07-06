@@ -1,0 +1,17 @@
+[package]
+name = "lecternd"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Lectern engine daemon — long-lived host for the engine, exposed over a local socket."
+
+[[bin]]
+name = "lecternd"
+path = "src/main.rs"
+
+[dependencies]
+lectern-engine = { path = "../engine" }
+anyhow = "1"
+serde_json = "1"

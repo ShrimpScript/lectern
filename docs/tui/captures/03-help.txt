@@ -1,0 +1,30 @@
+ ⌊⌋ lectern  ·  build a settings page  ·  lectern-tui-drive-ws                                    ^S sessions
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│       ┌─ Help — esc ─────────────────────────────────────────┐                                             │
+│ you · │                                                      │                                             │
+│   Done│ Type /command, or press ^X then a letter.            │wired into the router. 24 tests pass.        │
+│   · 18│                                                      │                                             │
+│   done│ /sessions   ^X s  switch session (fuzzy)             │                                             │
+│       │ /models     ^X m  pick the model (fuzzy)             │                                             │
+│       │ /new        ^X n  start a fresh session              │                                             │
+│       │ /theme      ^X t  switch theme (reads ~/.lectern/    │                                             │
+│       │ themes)                                              │                                             │
+│       │ /plan             plan mode — propose, don't apply ( │                                             │
+│       │ default)                                             │                                             │
+│       │ /apply      ^X a  apply mode — write changes, ask    │                                             │
+│       │ on risk                                              │                                             │
+│       │ /conduct    ^X c  conduct mode — orchestrate steps ( │                                             │
+│       │ or /conduct <task>)                                  │                                             │
+│       │ /one-shot   ^X o  one-shot mode — build              │                                             │
+│       │ autonomously (or /one-shot <task>)                   │                                             │
+│       │ /rename           rename this session: /rename       │                                             │
+│       │ <title>                                              │                                             │
+│       │ /pin        ^X p  pin/unpin this session (★ sorts    │                                             │
+│       │ first)                                               │                                             │
+│       │ /export           export chat here: /export [        │                                             │
+│       │ md|json]                                             │                                             │
+└───────│ /brain      ^X b  brain stats                        │─────────────────────────────────────────────┘
+┌─ plan │ /diffs      ^X d  file changes this session (full    │─────────────────────────────────────────────┐
+│ what s│ view)                                                │                                             │
+└───────│ /clean      ^X v  toggle clean output (hide          │─────────────────────────────────────────────┘
+ auto  ·│ machinery)                                           │                                        ready

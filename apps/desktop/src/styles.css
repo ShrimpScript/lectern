@@ -1,0 +1,186 @@
+/* Lectern desktop tokens — from Lectern-Brain/02-Design-System/Design Tokens.md.
+   Fonts (Archivo + IBM Plex Mono) should be bundled locally for offline use. */
+:root, [data-theme="dark"] {
+  --backdrop:#050506; --bg:#0a0a0b; --panel:#141416; --panel2:#1d1d20; --elev:#0e0e10;
+  --chrome:#161618; --tree:#0c0c0e; --bd:rgba(255,255,255,.10); --bd2:rgba(255,255,255,.06);
+  --fg:#f4f4f2; --fg2:#9a9a96; --fg3:#66665f; --hov:rgba(255,255,255,.06); --btn:#f4f4f2; --btnfg:#0a0a0a;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--backdrop); color:var(--fg);
+  font-family:"IBM Plex Sans Variable",system-ui,-apple-system,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+.mono { font-family:"IBM Plex Mono",ui-monospace,"SF Mono",monospace; }
+@keyframes dotpulse { 0%,80%,100%{opacity:.25} 40%{opacity:1} }
+@keyframes lectern-fade { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+/* gentle fade-in for the "Thinking…" loading text so it eases in instead of popping */
+@keyframes lectern-fadein { from{opacity:0;transform:translateY(3px)} to{opacity:1;transform:none} }
+.lectern-fadein { animation: lectern-fadein .45s cubic-bezier(.22,.61,.36,1) both; }
+@media (prefers-reduced-motion: reduce) { .lectern-fadein { animation:none; } }
+@keyframes lectern-shimmer { 0%{background-position:-280px 0} 100%{background-position:280px 0} }
+
+/* messages animate in once on mount — springy decel with a whisper of overshoot */
+.lectern-msg { animation: lectern-fade .38s cubic-bezier(.3,1.28,.44,1) both; }
+/* reduce motion respect */
+@media (prefers-reduced-motion: reduce) { .lectern-msg { animation: none; } }
+
+/* per-letter fade for streamed text (StreamedMessage tail) */
+@keyframes lectern-charin { from{opacity:0} to{opacity:1} }
+.lectern-charin { animation: lectern-charin .22s ease-out both; }
+@media (prefers-reduced-motion: reduce) { .lectern-charin { animation: none; } }
+
+/* consistent, lively interactions — springy transform curves (subtle overshoot) */
+button { transition: background .15s ease, border-color .15s ease, color .15s ease, transform .22s cubic-bezier(.34,1.56,.64,1), opacity .15s ease; }
+button:not(:disabled):active { transform: translateY(1px); transition-duration: .15s, .15s, .15s, .06s, .15s; }
+input, textarea, select { transition: border-color .15s ease, background .15s ease; }
+
+/* clean single-surface composer (Claude/Omnigent style — no box-in-a-box, no halo) */
+.composer-pill { transition: border-color .16s ease; }
+.composer-pill:focus-within { border-color: var(--fg3); }
+/* ghost icon buttons in the composer + nav */
+.icon-btn { transition: background .14s ease, color .14s ease, transform .22s cubic-bezier(.34,1.56,.64,1); }
+.icon-btn:hover { background: var(--hov); color: var(--fg); }
+/* circular send/stop button — springs up on hover */
+.send-orb { transition: background .15s ease, transform .25s cubic-bezier(.34,1.56,.64,1), opacity .15s ease; }
+.send-orb:not(:disabled):hover { transform: translateY(-2px); }
+.send-orb:not(:disabled):active { transform: translateY(0); transition-duration: .15s, .06s, .15s; }
+/* mic recording pulse */
+@keyframes lectern-rec { 0%,100%{opacity:1} 50%{opacity:.4} }
+.mic-rec { color: var(--accent-danger, #e5687a) !important; animation: lectern-rec 1s ease-in-out infinite; }
+
+/* skeleton shimmer block */
+.lectern-skel { border-radius:6px;
+  background:linear-gradient(90deg, var(--panel2) 25%, var(--hov) 37%, var(--panel2) 63%);
+  background-size:560px 100%; animation: lectern-shimmer 1.3s linear infinite; }
+
+/* thinking — a soft light sweeps across the word (no spinner, no green dot) */
+@keyframes lectern-think { 0%{background-position:180% 0} 100%{background-position:-60% 0} }
+.lectern-think {
+  background:linear-gradient(90deg,var(--fg3) 0%,var(--fg3) 38%,var(--fg) 50%,var(--fg3) 62%,var(--fg3) 100%);
+  background-size:220% 100%; -webkit-background-clip:text; background-clip:text;
+  -webkit-text-fill-color:transparent; color:transparent;
+  animation:lectern-think 1.5s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .lectern-think { animation:none; -webkit-text-fill-color:var(--fg2); color:var(--fg2); } }
+
+/* live typing caret on a streaming message */
+.lectern-caret { display:inline-block; width:6px; height:1.02em; margin-left:1px; vertical-align:text-bottom; background:var(--fg2); animation: lectern-blink 1s steps(2,start) infinite; }
+@keyframes lectern-blink { 50% { opacity:0; } }
+@media (prefers-reduced-motion: reduce) { .lectern-caret { animation:none; } }
+
+/* collapsible machinery rows (tool calls, diffs, memory, routing) */
+.lectern-row { transition: background .12s ease; }
+.lectern-row:hover { background: var(--hov); }
+.lectern-chev { display:inline-block; transition: transform .24s cubic-bezier(.34,1.56,.64,1); }
+
+/* smooth, fast side-panel entrance */
+@keyframes lectern-slide-l { from{opacity:0;transform:translateX(8px)} to{opacity:1;transform:none} }
+.lectern-side { animation: lectern-slide-l .28s cubic-bezier(.3,1.24,.44,1) both; }
+@media (prefers-reduced-motion: reduce) { .lectern-side, .lectern-msg { animation:none; } }
+
+/* a line with a review comment in the built-in editor */
+.cm-commented { background: rgba(127,127,127,.16); }
+.cm-editor { height: 100%; }
+.cm-editor .cm-scroller { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+/* responsive: drop side panels when the window gets narrow */
+@media (max-width: 880px) { .lectern-side { display:none !important; } }
+
+/* Accessibility: a clear keyboard-focus ring on interactive elements. Uses
+   :focus-visible so it only shows on keyboard nav, never on mouse clicks —
+   monochrome + theme-aware (black on light, white on dark) per the identity. */
+:is(button, a, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+:is(button, a, input, textarea, select, summary, [tabindex]):focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Reduced motion: the named animations above are already disabled per-class, but
+   the app also uses transition-based movement (button/orb hover-lifts, slide-ins,
+   chevron rotation). Neutralize all of it globally for users who ask for less
+   motion — elements snap to their end state instead of animating. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── onboarding demo scenes: mini app mock + an animated cursor that moves,
+      types, clicks (pure CSS; Rive files take over when present) ── */
+.onb-stage { position:relative; height:172px; border:1px solid var(--bd); border-radius:12px;
+  background:var(--elev); overflow:hidden; }
+.onb-cursor { position:absolute; z-index:5; filter:drop-shadow(0 1px 2px rgba(0,0,0,.35)); }
+.onb-composer { position:absolute; left:14px; right:14px; bottom:14px; height:36px;
+  border:1px solid var(--bd); border-radius:12px; background:var(--panel);
+  display:flex; align-items:center; padding:0 6px 0 12px; gap:8px; }
+.onb-type { flex:1; font-size:12px; color:var(--fg); white-space:nowrap; overflow:hidden;
+  }
+@keyframes onb-type { 0%,18% { width:0; } 52%,100% { width:140px; } }
+.onb-orb { width:26px; height:26px; border-radius:50%; background:var(--btn); color:var(--btnfg);
+  display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; flex-shrink:0;
+  }
+@keyframes onb-orb { 0%,67% { transform:scale(1); } 70% { transform:scale(.86); } 74%,100% { transform:scale(1); } }
+.onb-bubble { position:absolute; right:14px; top:14px; max-width:66%; background:var(--panel2);
+  border:1px solid var(--bd); border-radius:12px 12px 4px 12px; padding:7px 11px; font-size:11.5px;
+  color:var(--fg); }
+@keyframes onb-in { 0%,73% { opacity:0; transform:translateY(4px); } 78%,96% { opacity:1; transform:none; } 100% { opacity:0; } }
+.onb-card.onb-plan { position:absolute; left:14px; top:16px; width:180px; border:1px solid var(--bd);
+  border-radius:10px; background:var(--panel); padding:9px 11px; font-size:11px; color:var(--fg2);
+  }
+@keyframes onb-plan { 0%,80% { opacity:0; transform:translateY(5px); } 86%,97% { opacity:1; transform:none; } 100% { opacity:0; } }
+.onb-plan-title { font-weight:700; font-size:10.5px; color:var(--fg2); margin-bottom:4px; }
+.onb-plan-row { padding:1.5px 0; color:var(--fg); }
+.onb-plan-late { color:var(--fg3); }
+
+.onb-chiprow { position:absolute; left:14px; top:16px; display:flex; gap:6px; }
+.onb-chip { border:1px solid var(--bd); background:var(--panel2); color:var(--fg2); border-radius:999px;
+  padding:3px 10px; font-size:11px; font-weight:500; }
+@keyframes onb-chip { 0%,23% { background:var(--panel2); color:var(--fg2); } 26%,100% { background:var(--hov); color:var(--fg); } }
+.onb-pill { position:absolute; left:14px; top:52px; display:inline-flex; align-items:center; gap:6px;
+  border:1px solid var(--fg); color:var(--fg); border-radius:999px; padding:3px 11px; font-size:11px;
+  font-weight:600; }
+@keyframes onb-pill { 0%,27% { opacity:0; transform:translateY(3px); } 32%,96% { opacity:1; transform:none; } 100% { opacity:0; } }
+.onb-route { position:absolute; left:14px; top:92px; font-size:11px; color:var(--fg3);
+  }
+@keyframes onb-route { 0%,42% { opacity:0; } 48%,95% { opacity:1; } 100% { opacity:0; } }
+.onb-route2 { top:112px; }
+@keyframes onb-route-b { 0%,56% { opacity:0; } 62%,95% { opacity:1; } 100% { opacity:0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-cursor { display:none; }
+  .onb-type { animation:none; width:140px; border-right:none; }
+  .onb-bubble, .onb-card.onb-plan, .onb-pill, .onb-route, .onb-route2 { animation:none; opacity:1; transform:none; }
+  .onb-orb, .onb-chip-conduct { animation:none; }
+}
+
+/* onboarding v2.1: JS-driven scene bits — measured cursor + thin caret */
+.onb-cursor2 { position:absolute; z-index:5; filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));
+  transition: transform .85s cubic-bezier(.45,.1,.25,1); will-change: transform; }
+.onb-type2 { flex:1; font-size:12px; color:var(--fg); white-space:nowrap; overflow:hidden; display:inline-flex; align-items:center; }
+.onb-caret { display:inline-block; width:1.5px; height:13px; background:var(--fg2); margin-left:1px; animation: onb-blink 1s steps(1) infinite; }
+@keyframes onb-blink { 50% { opacity:0; } }
+
+/* popover/strip entrances: one spring language everywhere */
+@keyframes lectern-pop { from { opacity:0; transform: translateY(-4px) scale(.985); } to { opacity:1; transform:none; } }
+.lectern-pop { animation: lectern-pop .22s cubic-bezier(.3,1.2,.4,1) both; transform-origin: top right; }
+@media (prefers-reduced-motion: reduce) { .lectern-pop { animation:none; } }
+
+/* Hermes-style working dots (QoL batch C) */
+.lectern-dots { display:inline-flex; gap:4px; align-items:center; }
+.lectern-dots span { width:5px; height:5px; border-radius:50%; background:var(--fg2);
+  animation: lectern-dot 1.15s ease-in-out infinite; }
+.lectern-dots span:nth-child(2) { animation-delay:.14s; }
+.lectern-dots span:nth-child(3) { animation-delay:.28s; }
+@keyframes lectern-dot { 0%,100% { opacity:.25; transform:translateY(0); } 40% { opacity:1; transform:translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .lectern-dots span { animation:none; opacity:.7; } }
+
+/* terminal drawer: blended slide-open (the menu feel) */
+.lectern-termwrap { flex-shrink:0; overflow:hidden; max-height:0; opacity:0;
+  transform:translateY(8px); transition:max-height .26s cubic-bezier(.3,1.1,.4,1), opacity .22s ease, transform .26s cubic-bezier(.3,1.1,.4,1); }
+.lectern-termwrap.open { max-height:290px; opacity:1; transform:none; }
+@media (prefers-reduced-motion: reduce) { .lectern-termwrap { transition:none; } }

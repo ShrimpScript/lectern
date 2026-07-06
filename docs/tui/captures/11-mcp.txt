@@ -1,0 +1,30 @@
+ ⌊⌋ lectern  ·  build a settings page  ·  lectern-tui-drive-ws                                    ^S sessions
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│       ┌─ MCP servers (read-only) — esc ──────────────────────┐                                             │
+│ you · │                                                      │                                             │
+│   ✓ re│ registered per harness (from their config files)     │-202183-1.md                                 │
+│   thou│                                                      │                                             │
+│   Plan│   claude       github, google-calendar               │                                             │
+│     ✓ │   opencode     —                                     │                                             │
+│     ✓ │   antigravity  —                                     │                                             │
+│     • │                                                      │                                             │
+│   ✎ ap│ add/remove servers in the desktop app → Settings →   │                                             │
+│     + │ Tools (MCP)                                          │                                             │
+│     + │                                                      │                                             │
+│     − └──────────────────────────────────────────────────────┘                                             │
+│   $ npm test                                                                                               │
+│     ✓ 24 passed · 0 failed                                                                                 │
+│   Done — /settings is live with a persisted dark-mode toggle, wired into the router. 24 tests pass.        │
+│   · 1840 in / 320 out tokens                                                                               │
+│   done · 1 change(s)                                                                                       │
+│   pinned ★                                                                                                 │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌─ plan mode ────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ what should we build?  (/help for commands)                                                                │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ auto  ·  plan  ·  ctx 0%                                                                               ready

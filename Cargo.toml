@@ -1,0 +1,18 @@
+# Lectern — Rust workspace (the engine + CLI + daemon).
+# The desktop app (apps/desktop) has its own Tauri Cargo project and is excluded here.
+[workspace]
+resolver = "2"
+members = ["crates/engine", "crates/lectern", "crates/lecternd"]
+# The Tauri desktop app has its own Cargo project (its own dep tree + system libs).
+exclude = ["apps/desktop/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/ShrimpScript/lectern"
+publish = false
+
+[profile.release]
+strip = true
+lto = "thin"

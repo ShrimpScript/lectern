@@ -1,0 +1,17 @@
+[package]
+name = "lectern"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Lectern CLI — open a repo and run agent sessions from the terminal."
+
+[[bin]]
+name = "lectern"
+path = "src/main.rs"
+
+[dependencies]
+lectern-engine = { path = "../engine" }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"

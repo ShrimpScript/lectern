@@ -1,0 +1,30 @@
+ ⌊⌋ lectern  ·  drive suite session  ·  lectern-tui-drive-ws                                      ^S sessions
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│     ┌─ sessions — filter · ↑↓ · enter · ^R rename · esc ───┐                                               │
+│ you │                                                      │                                               │
+│   ✓ │ rename: build a settings page▏                       │on-202183-1.md                                 │
+│   th│                                                      │                                               │
+│   Pl│   build a settings page  · mock                      │                                               │
+│     │   build a settings page  · mock                      │                                               │
+│     │   build a settings page  · mock                      │                                               │
+│     │   build a settings page  · mock                      │                                               │
+│   ✎ │                                                      │                                               │
+│     └──────────────────────────────────────────────────────┘                                               │
+│     +   const [dark, setDark] = useTheme()                                                                 │
+│     − // todo: settings                                                                                    │
+│   $ npm test                                                                                               │
+│     ✓ 24 passed · 0 failed                                                                                 │
+│   Done — /settings is live with a persisted dark-mode toggle, wired into the router. 24 tests pass.        │
+│   · 1840 in / 320 out tokens                                                                               │
+│   done · 1 change(s)                                                                                       │
+│   pinned ★                                                                                                 │
+│   renamed → drive suite session                                                                            │
+│   pinned ★                                                                                                 │
+│   exported → /tmp/lectern-tui-drive-ws/lectern-drive-suite-session-330130-1.md                             │
+│                                                                                                            │
+│                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌─ plan mode ────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ what should we build?  (/help for commands)                                                                │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ auto  ·  plan  ·  ctx 0%                                                                               ready
