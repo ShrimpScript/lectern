@@ -556,6 +556,8 @@ dependencies = [
  "anyhow",
  "clap",
  "lectern-engine",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

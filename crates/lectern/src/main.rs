@@ -8,7 +8,8 @@ use lectern_engine::{
     cloud, AntigravityBackend, ClaudeCodeBackend, Engine, LimitBackend, MockBackend,
     OpenCodeBackend, RunOptions,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 // ── tiny ANSI helpers (no deps) ──────────────────────────────────────────────
 const DIM: &str = "\x1b[2m";
@@ -22,6 +23,98 @@ fn dim(s: &str) -> String {
 }
 fn bold(s: &str) -> String {
     format!("{BOLD}{s}{RESET}")
+}
+
+// ── benchmark instrumentation ────────────────────────────────────────────────
+// A machine-readable report of one run, written when `--metrics-out` is set. It
+// turns the event stream into verifiable numbers — token cost, tool-call count,
+// and (for the Conductor) the actual per-step model routing and whether a
+// cross-model review fired — so orchestration claims can be measured, not asserted.
+#[derive(serde::Serialize)]
+struct RouteRec {
+    model: String,
+    reason: String,
+}
+
+#[derive(serde::Serialize, Default)]
+struct RunMetrics {
+    mode: String,    // "run" | "conductor"
+    backend: String, // requested backend
+    success: bool,
+    input_tokens: u64,
+    output_tokens: u64,
+    total_tokens: u64,
+    tool_calls: u32, // Terminal events (commands the agent ran)
+    file_edits: u32, // FileEdit events
+    plan_steps: u32, // steps in the Conductor's plan
+    recalls: u32,    // brain signals: memory recalls + applied skills
+    review_steps: u32,
+    routes: Vec<RouteRec>, // per-step model routing decisions
+    distinct_models: u32,  // how many different models actually ran
+    changes: u32,
+    limit_hit: bool,
+    wall_ms: u128,
+    error: Option<String>,
+}
+
+impl RunMetrics {
+    fn new(mode: &str, backend: &str) -> Self {
+        RunMetrics {
+            mode: mode.into(),
+            backend: backend.into(),
+            ..Default::default()
+        }
+    }
+    // Fold one event into the running tallies (called before the event is rendered).
+    fn observe(&mut self, ev: &AgentEvent) {
+        match ev {
+            AgentEvent::Terminal { .. } => self.tool_calls += 1,
+            AgentEvent::FileEdit { .. } => self.file_edits += 1,
+            AgentEvent::Plan { steps } => self.plan_steps = steps.len() as u32,
+            AgentEvent::ModelRouted { model, reason } => {
+                if reason.to_lowercase().contains("review") {
+                    self.review_steps += 1;
+                }
+                self.routes.push(RouteRec {
+                    model: model.clone(),
+                    reason: reason.clone(),
+                });
+            }
+            AgentEvent::Thought { recalls, .. } => self.recalls += recalls.len() as u32,
+            AgentEvent::SkillApplied { .. } => self.recalls += 1,
+            // Fallback token totals if the run errors before returning a RunResult.
+            AgentEvent::Usage {
+                input_tokens,
+                output_tokens,
+            } => {
+                self.input_tokens = *input_tokens;
+                self.output_tokens = *output_tokens;
+            }
+            _ => {}
+        }
+    }
+    // Fill in the authoritative totals from the final result and write the JSON.
+    fn finalize(&mut self, elapsed: Instant) {
+        self.wall_ms = elapsed.elapsed().as_millis();
+        self.total_tokens = self.input_tokens + self.output_tokens;
+        let mut models: Vec<&str> = self.routes.iter().map(|r| r.model.as_str()).collect();
+        models.sort_unstable();
+        models.dedup();
+        self.distinct_models = models.len() as u32;
+    }
+    fn write(&self, path: &Path) {
+        match serde_json::to_string_pretty(self) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(path, json) {
+                    eprintln!(
+                        "{}",
+                        dim(&format!("metrics: could not write {path:?}: {e}"))
+                    );
+                }
+            }
+            Err(e) => eprintln!("{}", dim(&format!("metrics: serialize failed: {e}"))),
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -80,6 +173,9 @@ enum Cmd {
         /// On a usage limit, auto-schedule a retry this many seconds later.
         #[arg(long, default_value = "3600")]
         retry_after: i64,
+        /// Write a machine-readable run report (tokens, tool calls, routing) to this JSON file.
+        #[arg(long)]
+        metrics_out: Option<PathBuf>,
     },
     /// Show the adaptive context Lectern would send for a prompt (the "why" inspector).
     Context {
@@ -169,6 +265,9 @@ enum Cmd {
         /// Backend for steps when routing is unavailable (default: auto).
         #[arg(short, long, default_value = "auto")]
         backend: String,
+        /// Write a machine-readable run report (tokens, per-step routing, review) to this JSON file.
+        #[arg(long)]
+        metrics_out: Option<PathBuf>,
     },
 }
 
@@ -279,6 +378,7 @@ fn run() -> Result<()> {
             yolo,
             fallback_model,
             retry_after,
+            metrics_out,
         } => cmd_run(
             prompt.join(" "),
             &backend,
@@ -292,6 +392,7 @@ fn run() -> Result<()> {
                 fallback_model,
             },
             retry_after,
+            metrics_out,
         ),
         Cmd::Context {
             prompt,
@@ -371,7 +472,8 @@ fn run() -> Result<()> {
             apply,
             yolo,
             backend,
-        } => cmd_conduct(prompt.join(" "), &path, apply, yolo, &backend),
+            metrics_out,
+        } => cmd_conduct(prompt.join(" "), &path, apply, yolo, &backend, metrics_out),
         Cmd::LearnSystem => cmd_learn_system(),
     }
 }
@@ -416,6 +518,7 @@ fn cmd_conduct(
     apply: bool,
     yolo: bool,
     backend: &str,
+    metrics_out: Option<PathBuf>,
 ) -> Result<()> {
     if prompt.trim().is_empty() {
         anyhow::bail!("provide a task, e.g. lectern conduct \"add a config file and a loader\"");
@@ -441,7 +544,30 @@ fn cmd_conduct(
         };
         pick_backend(use_backend, &flags).unwrap_or_else(|_| Box::new(MockBackend { fast: true }))
     };
-    let result = engine.run_conductor(&ws, &prompt, &make, apply, &mut render_event)?;
+    let mut metrics = RunMetrics::new("conductor", backend);
+    let started = Instant::now();
+    let outcome = {
+        let m = &mut metrics;
+        let mut sink = |ev: AgentEvent| {
+            m.observe(&ev);
+            render_event(ev);
+        };
+        engine.run_conductor(&ws, &prompt, &make, apply, &mut sink)
+    };
+    if let Ok(r) = &outcome {
+        metrics.success = true;
+        metrics.input_tokens = r.usage.input_tokens;
+        metrics.output_tokens = r.usage.output_tokens;
+        metrics.changes = r.changes.len() as u32;
+        metrics.limit_hit = r.limit_hit;
+    } else if let Err(e) = &outcome {
+        metrics.error = Some(e.to_string());
+    }
+    metrics.finalize(started);
+    if let Some(p) = &metrics_out {
+        metrics.write(p);
+    }
+    let result = outcome?;
     println!();
     println!(
         "{}",
@@ -660,6 +786,7 @@ fn pick_backend(name: &str, flags: &RunFlags) -> Result<Box<dyn Backend>> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_run(
     prompt: String,
     backend_name: &str,
@@ -668,6 +795,7 @@ fn cmd_run(
     worktree: bool,
     flags: RunFlags,
     retry_after: i64,
+    metrics_out: Option<PathBuf>,
 ) -> Result<()> {
     if prompt.trim().is_empty() {
         anyhow::bail!("provide a prompt, e.g. lectern run \"add a settings page\"");
@@ -712,13 +840,36 @@ fn cmd_run(
     }
     println!();
 
-    let result = engine.run(
-        &ws,
-        &prompt,
-        backend.as_ref(),
-        RunOptions { apply, worktree },
-        render_event,
-    )?;
+    let mut metrics = RunMetrics::new("run", backend_name);
+    let started = Instant::now();
+    let outcome = {
+        let m = &mut metrics;
+        let sink = |ev: AgentEvent| {
+            m.observe(&ev);
+            render_event(ev);
+        };
+        engine.run(
+            &ws,
+            &prompt,
+            backend.as_ref(),
+            RunOptions { apply, worktree },
+            sink,
+        )
+    };
+    if let Ok(r) = &outcome {
+        metrics.success = true;
+        metrics.input_tokens = r.usage.input_tokens;
+        metrics.output_tokens = r.usage.output_tokens;
+        metrics.changes = r.changes.len() as u32;
+        metrics.limit_hit = r.limit_hit;
+    } else if let Err(e) = &outcome {
+        metrics.error = Some(e.to_string());
+    }
+    metrics.finalize(started);
+    if let Some(p) = &metrics_out {
+        metrics.write(p);
+    }
+    let result = outcome?;
 
     println!();
     if result.changes.is_empty() {
