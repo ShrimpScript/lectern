@@ -1,0 +1,6 @@
+{
+  "id": "refactor-counter",
+  "category": "refactor",
+  "prompt": "Refactor counter.py so that instead of module-level functions it exposes a Counter class with methods increment(), decrement(), and value(). A new Counter() starts at 0. Keep it in counter.py.",
+  "grade": "python3 -c \"import counter; c=counter.Counter(); c.increment(); c.increment(); c.decrement(); assert c.value()==1, c.value()\""
+}

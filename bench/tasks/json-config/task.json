@@ -1,0 +1,6 @@
+{
+  "id": "json-config",
+  "category": "feature",
+  "prompt": "Create a file config.py containing a function load_config(path) that reads the JSON file at path and returns it as a dict. If the file does not exist, return an empty dict.",
+  "grade": "python3 -c \"import json,os,config; open('t.json','w').write('{\\\"a\\\": 1}'); assert config.load_config('t.json')=={'a':1}; assert config.load_config('missing.json')=={}\""
+}
