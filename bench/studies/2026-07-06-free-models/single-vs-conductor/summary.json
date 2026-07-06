@@ -1,0 +1,16 @@
+{
+  "conductor": {
+    "runs": 16,
+    "graded": 16,
+    "pass_rate": 1.0,
+    "mean_tokens": 18524,
+    "mean_tool_calls": 0.0
+  },
+  "single": {
+    "runs": 16,
+    "graded": 16,
+    "pass_rate": 1.0,
+    "mean_tokens": 13993,
+    "mean_tool_calls": 0.0
+  }
+}

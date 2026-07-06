@@ -1,0 +1,24 @@
+{
+  "mode": "conductor",
+  "backend": "opencode",
+  "success": true,
+  "input_tokens": 13681,
+  "output_tokens": 111,
+  "total_tokens": 13792,
+  "tool_calls": 0,
+  "file_edits": 0,
+  "plan_steps": 1,
+  "recalls": 1,
+  "review_steps": 0,
+  "routes": [
+    {
+      "model": "Sonnet 4.6",
+      "reason": "step 1/1: Create config.py — general coding task → Sonnet"
+    }
+  ],
+  "distinct_models": 1,
+  "changes": 0,
+  "limit_hit": false,
+  "wall_ms": 16681,
+  "error": null
+}

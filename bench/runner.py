@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -85,13 +86,22 @@ def run_arm(lectern, task, arm, backend, model, ws, metrics_path, env, timeout):
         i += 1
     argv += [task["prompt"], "--metrics-out", str(metrics_path)]
     t0 = time.time()
+    # Own process group so a timeout can kill the whole tree — the agent CLI
+    # spawns a backend (e.g. opencode) as a grandchild that must die too.
+    proc = subprocess.Popen(argv, cwd=ws, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, env=env,
+                            start_new_session=True)
     try:
-        p = subprocess.run(argv, cwd=ws, capture_output=True, text=True,
-                           timeout=timeout, env=env)
-        rc, err = p.returncode, p.stderr[-500:]
+        _out, err = proc.communicate(timeout=timeout)
+        rc = proc.returncode
     except subprocess.TimeoutExpired:
-        rc, err = 124, "TIMEOUT"
-    return rc, round(time.time() - t0, 2), err
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        _out, err = proc.communicate()
+        rc, err = 124, (err or "") + " TIMEOUT"
+    return rc, round(time.time() - t0, 2), (err or "")[-500:]
 
 
 def grade(task, ws, timeout):
@@ -134,7 +144,9 @@ def main():
                          "(build with `cargo build -p lectern` or set LECTERN_BIN)")
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    outdir = Path(args.out) if args.out else BENCH / "results" / ts
+    # Absolute: the CLI runs with cwd set to each task's temp workspace, so a
+    # relative --metrics-out path would land inside (and vanish with) that dir.
+    outdir = (Path(args.out) if args.out else BENCH / "results" / ts).resolve()
     outdir.mkdir(parents=True, exist_ok=True)
 
     env = dict(os.environ)

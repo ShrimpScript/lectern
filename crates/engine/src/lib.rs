@@ -136,6 +136,16 @@ pub struct IndexSummary {
     pub bytes: u64,
 }
 
+/// Kill-switch for the persistent brain. When `LECTERN_NO_BRAIN=1`, memory
+/// recall and learned-skill matching are skipped, so a run relies only on the
+/// base agent's own context — a no-memory mode, and the control arm that
+/// measures how much the brain actually contributes.
+fn brain_disabled() -> bool {
+    std::env::var("LECTERN_NO_BRAIN")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 /// One item the Adaptive Context Builder selected for the payload.
 pub struct ContextItem {
     pub path: String,
@@ -332,6 +342,9 @@ impl Engine {
     /// Hybrid recall: fuse lexical (FTS) and vector (cosine) results via reciprocal-
     /// rank fusion. Either signal can surface a file the other misses.
     pub fn recall(&self, ws: &Workspace, prompt: &str, limit: i64) -> Vec<String> {
+        if brain_disabled() {
+            return Vec::new();
+        }
         let k = limit.max(1) as usize;
 
         // lexical
@@ -1675,6 +1688,9 @@ per bullet — no preamble, no narration around it.";
 
     /// Match learned skills to a prompt by trigger overlap (lexical v1; embeddings next).
     pub fn match_skills(&self, ws: &Workspace, prompt: &str, limit: usize) -> Vec<Skill> {
+        if brain_disabled() {
+            return Vec::new();
+        }
         let ptoks: HashSet<String> = tokenize(prompt).into_iter().collect();
         let mut scored: Vec<(usize, Skill)> = Vec::new();
         for row in self.store.list_skills(&ws.id).unwrap_or_default() {
