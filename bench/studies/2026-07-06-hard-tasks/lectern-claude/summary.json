@@ -1,0 +1,9 @@
+{
+  "single": {
+    "runs": 6,
+    "graded": 6,
+    "pass_rate": 1.0,
+    "mean_tokens": 11671,
+    "mean_tool_calls": 2.33
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "mode": "run",
+  "backend": "claude-code",
+  "success": true,
+  "input_tokens": 9071,
+  "output_tokens": 2216,
+  "total_tokens": 11287,
+  "tool_calls": 2,
+  "file_edits": 1,
+  "plan_steps": 0,
+  "recalls": 1,
+  "review_steps": 0,
+  "routes": [],
+  "distinct_models": 0,
+  "changes": 1,
+  "limit_hit": false,
+  "wall_ms": 39332,
+  "error": null
+}

@@ -1,0 +1,28 @@
+{
+  "mode": "conductor",
+  "backend": "auto",
+  "success": true,
+  "input_tokens": 52,
+  "output_tokens": 3406,
+  "total_tokens": 3458,
+  "tool_calls": 3,
+  "file_edits": 1,
+  "plan_steps": 2,
+  "recalls": 2,
+  "review_steps": 0,
+  "routes": [
+    {
+      "model": "Haiku 4.5",
+      "reason": "step 1/2: Examine config.py — quick, low-complexity task → Haiku"
+    },
+    {
+      "model": "Haiku 4.5",
+      "reason": "step 2/2: Write migrate.py — quick, low-complexity task → Haiku"
+    }
+  ],
+  "distinct_models": 1,
+  "changes": 1,
+  "limit_hit": false,
+  "wall_ms": 92567,
+  "error": null
+}

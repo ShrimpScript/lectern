@@ -1,0 +1,12 @@
+{
+  "mode": "raw-claude",
+  "backend": "claude-cli",
+  "success": true,
+  "input_tokens": 9071,
+  "output_tokens": 1165,
+  "total_tokens": 10236,
+  "cache_read_tokens": 61774,
+  "cache_creation_tokens": 15776,
+  "tool_calls": 7,
+  "wall_ms": 26843
+}

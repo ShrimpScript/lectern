@@ -1,0 +1,32 @@
+{
+  "mode": "conductor",
+  "backend": "auto",
+  "success": true,
+  "input_tokens": 56,
+  "output_tokens": 4811,
+  "total_tokens": 4867,
+  "tool_calls": 8,
+  "file_edits": 3,
+  "plan_steps": 3,
+  "recalls": 1,
+  "review_steps": 0,
+  "routes": [
+    {
+      "model": "Haiku 4.5",
+      "reason": "step 1/3: Create parser.py — quick, low-complexity task → Haiku"
+    },
+    {
+      "model": "Haiku 4.5",
+      "reason": "step 2/3: Create validator.py — quick, low-complexity task → Haiku"
+    },
+    {
+      "model": "Sonnet 4.6",
+      "reason": "step 3/3: Create pipeline.py — general coding task → Sonnet"
+    }
+  ],
+  "distinct_models": 2,
+  "changes": 3,
+  "limit_hit": false,
+  "wall_ms": 114228,
+  "error": null
+}

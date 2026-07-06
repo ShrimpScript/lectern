@@ -1,0 +1,28 @@
+{
+  "mode": "conductor",
+  "backend": "opencode",
+  "success": true,
+  "input_tokens": 28873,
+  "output_tokens": 3970,
+  "total_tokens": 32843,
+  "tool_calls": 0,
+  "file_edits": 0,
+  "plan_steps": 2,
+  "recalls": 1,
+  "review_steps": 0,
+  "routes": [
+    {
+      "model": "Haiku 4.5",
+      "reason": "step 1/2: Create wrap.py — quick, low-complexity task → Haiku"
+    },
+    {
+      "model": "Haiku 4.5",
+      "reason": "step 2/2: Verify wrap.py — quick, low-complexity task → Haiku"
+    }
+  ],
+  "distinct_models": 1,
+  "changes": 0,
+  "limit_hit": false,
+  "wall_ms": 126326,
+  "error": null
+}

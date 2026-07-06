@@ -1,0 +1,28 @@
+{
+  "mode": "conductor",
+  "backend": "opencode",
+  "success": true,
+  "input_tokens": 28672,
+  "output_tokens": 1904,
+  "total_tokens": 30576,
+  "tool_calls": 0,
+  "file_edits": 0,
+  "plan_steps": 2,
+  "recalls": 2,
+  "review_steps": 0,
+  "routes": [
+    {
+      "model": "Haiku 4.5",
+      "reason": "step 1/2: Write migrate.py — quick, low-complexity task → Haiku"
+    },
+    {
+      "model": "Sonnet 4.6",
+      "reason": "step 2/2: Verify migration logic — general coding task → Sonnet"
+    }
+  ],
+  "distinct_models": 2,
+  "changes": 0,
+  "limit_hit": false,
+  "wall_ms": 73777,
+  "error": null
+}

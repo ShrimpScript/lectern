@@ -1,0 +1,19 @@
+{
+  "mode": "run",
+  "backend": "opencode",
+  "success": true,
+  "input_tokens": 14070,
+  "output_tokens": 1133,
+  "total_tokens": 15203,
+  "tool_calls": 0,
+  "file_edits": 0,
+  "plan_steps": 0,
+  "recalls": 0,
+  "review_steps": 0,
+  "routes": [],
+  "distinct_models": 0,
+  "changes": 0,
+  "limit_hit": false,
+  "wall_ms": 19314,
+  "error": null
+}

@@ -1,0 +1,24 @@
+{
+  "mode": "conductor",
+  "backend": "opencode",
+  "success": true,
+  "input_tokens": 15049,
+  "output_tokens": 626,
+  "total_tokens": 15675,
+  "tool_calls": 0,
+  "file_edits": 0,
+  "plan_steps": 1,
+  "recalls": 3,
+  "review_steps": 0,
+  "routes": [
+    {
+      "model": "Sonnet 4.6",
+      "reason": "step 1/1: Running `python3 tests.py` fails. Fix the bugs in inventory.py (do not modify te — general coding task → Sonnet"
+    }
+  ],
+  "distinct_models": 1,
+  "changes": 0,
+  "limit_hit": false,
+  "wall_ms": 52522,
+  "error": null
+}

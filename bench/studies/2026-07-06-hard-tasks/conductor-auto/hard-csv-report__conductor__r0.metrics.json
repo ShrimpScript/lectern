@@ -1,0 +1,32 @@
+{
+  "mode": "conductor",
+  "backend": "auto",
+  "success": true,
+  "input_tokens": 30,
+  "output_tokens": 2411,
+  "total_tokens": 2441,
+  "tool_calls": 5,
+  "file_edits": 1,
+  "plan_steps": 3,
+  "recalls": 2,
+  "review_steps": 0,
+  "routes": [
+    {
+      "model": "Haiku 4.5",
+      "reason": "step 1/3: Inspect sales.csv — quick, low-complexity task → Haiku"
+    },
+    {
+      "model": "Sonnet 4.6",
+      "reason": "step 2/3: Write report.py — general coding task → Sonnet"
+    },
+    {
+      "model": "Sonnet 4.6",
+      "reason": "step 3/3: Test build_report — general coding task → Sonnet"
+    }
+  ],
+  "distinct_models": 2,
+  "changes": 1,
+  "limit_hit": false,
+  "wall_ms": 90945,
+  "error": null
+}
