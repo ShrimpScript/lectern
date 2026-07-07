@@ -7,7 +7,7 @@ import {
   LayoutGrid, Brain as BrainGlyph, Calendar, SlidersHorizontal, User,
   Search, Folder, PanelLeftClose, PanelLeft, PanelRight, PanelRightClose,
   SquarePen, GitBranch, BarChart3, MoreHorizontal, X, Globe, Code,
-  type LucideIcon,
+  ChevronLeft, ChevronRight, type LucideIcon,
 } from "lucide-react";
 // Lazy-loaded: CodeMirror + its language packs are heavy and only needed when a
 // file is opened, so they're split into an on-demand chunk (smaller startup bundle).
@@ -1200,12 +1200,32 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
   const [prevSel, setPrevSel] = useState<string | null>(null);
   const [prevText, setPrevText] = useState<string>("");
   const [prevSrcView, setPrevSrcView] = useState(false); // html artifacts: rendered ↔ source
+  // Artifact version history: each time the rail refetches a file and its content
+  // changed, snapshot it (session-lifetime, capped). The stepper flips between them.
+  const prevVersions = useRef<Map<string, { ts: number; text: string }[]>>(new Map());
+  const [, bumpVers] = useState(0);
+  const [prevVer, setPrevVer] = useState<number | null>(null); // null = live (latest)
   const prevItem = previewItems.find((it) => it.id === prevSel) ?? null;
+  const prevAbs = prevItem && prevItem.kind === "file"
+    ? (prevItem.id.startsWith("/") ? prevItem.id : `${session.path}/${prevItem.id}`)
+    : null;
+  const prevVers = prevAbs ? (prevVersions.current.get(prevAbs) ?? []) : [];
+  const prevShownText = prevVer == null ? prevText : (prevVers[prevVer]?.text ?? prevText);
+  useEffect(() => { setPrevVer(null); }, [prevSel]);
   useEffect(() => {
     if (!prevItem || prevItem.kind !== "file") { setPrevText(""); return; }
     const abs = prevItem.id.startsWith("/") ? prevItem.id : `${session.path}/${prevItem.id}`;
     if (/\.(png|jpe?g|gif|svg|webp)$/i.test(abs)) { setPrevText(""); return; }
-    invoke<string>("read_text_file", { path: abs }).then(setPrevText).catch((e) => setPrevText(`⚠ ${String(e)}`));
+    invoke<string>("read_text_file", { path: abs }).then((t) => {
+      setPrevText(t);
+      const vs = prevVersions.current.get(abs) ?? [];
+      if (!vs.length || vs[vs.length - 1].text !== t) {
+        vs.push({ ts: Date.now(), text: t });
+        if (vs.length > 20) vs.shift();
+        prevVersions.current.set(abs, vs);
+        bumpVers((n) => n + 1);
+      }
+    }).catch((e) => setPrevText(`⚠ ${String(e)}`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prevSel, session.path, session.events.length]);
   const [showPanel, setShowPanel] = useState(true); // Files/Agents/Shells/Todos panel
@@ -1440,14 +1460,34 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
                          document runs isolated from the app (no tauri APIs, no storage). */
                       <div style={{ flex: 1, minHeight: 240, border: "1px solid var(--bd)", borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                         {prevSrcView ? (
-                          <pre className="mono" style={{ flex: 1, margin: 0, overflow: "auto", fontSize: 11, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--fg2)", padding: "10px 12px", background: "var(--panel2)" }}>{prevText}</pre>
+                          <pre className="mono" style={{ flex: 1, margin: 0, overflow: "auto", fontSize: 11, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--fg2)", padding: "10px 12px", background: "var(--panel2)" }}>{prevShownText}</pre>
                         ) : (
-                          <iframe srcDoc={prevText} title={prevItem.label} sandbox="allow-scripts" style={{ flex: 1, border: "none", background: "#fff" }} />
+                          <iframe srcDoc={prevShownText} title={prevItem.label} sandbox="allow-scripts" style={{ flex: 1, border: "none", background: "#fff" }} />
                         )}
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 6px 4px 9px", borderTop: "1px solid var(--bd)" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px 4px 9px", borderTop: "1px solid var(--bd)" }}>
                           <span className="mono" style={{ flex: 1, fontSize: 10, color: "var(--fg3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {prevItem.label} · {prevSrcView ? "source" : "rendered · sandboxed"}
+                            {prevVer != null && ` · viewing v${prevVer + 1} of ${prevVers.length}`}
                           </span>
+                          {prevVers.length > 1 && (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+                              <button className="icon-btn" title="Older version"
+                                disabled={(prevVer ?? prevVers.length - 1) <= 0}
+                                onClick={() => setPrevVer((v) => Math.max(0, (v ?? prevVers.length - 1) - 1))}
+                                style={{ width: 22, height: 22, borderRadius: 6, border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, opacity: (prevVer ?? prevVers.length - 1) <= 0 ? 0.35 : 1 }}>
+                                <ChevronLeft size={13} strokeWidth={1.8} />
+                              </button>
+                              <span className="mono" style={{ fontSize: 10, color: "var(--fg3)" }}>
+                                v{(prevVer ?? prevVers.length - 1) + 1}/{prevVers.length}
+                              </span>
+                              <button className="icon-btn" title="Newer version"
+                                disabled={prevVer == null}
+                                onClick={() => setPrevVer((v) => (v == null || v >= prevVers.length - 2 ? null : v + 1))}
+                                style={{ width: 22, height: 22, borderRadius: 6, border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, opacity: prevVer == null ? 0.35 : 1 }}>
+                                <ChevronRight size={13} strokeWidth={1.8} />
+                              </button>
+                            </span>
+                          )}
                           <button className="icon-btn" onClick={() => setPrevSrcView((v) => !v)} title={prevSrcView ? "Show rendered" : "Show source"}
                             style={{ width: 24, height: 24, borderRadius: 6, border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
                             {prevSrcView ? <Globe size={13} strokeWidth={1.8} /> : <Code size={13} strokeWidth={1.8} />}
