@@ -184,3 +184,7 @@ input, textarea, select { transition: border-color .15s ease, background .15s ea
   transform:translateY(8px); transition:max-height .26s cubic-bezier(.3,1.1,.4,1), opacity .22s ease, transform .26s cubic-bezier(.3,1.1,.4,1); }
 .lectern-termwrap.open { max-height:290px; opacity:1; transform:none; }
 @media (prefers-reduced-motion: reduce) { .lectern-termwrap { transition:none; } }
+
+/* per-message copy — visible only while hovering the message */
+.msg-wrap .msg-copy { opacity: 0; transition: opacity .12s ease; }
+.msg-wrap:hover .msg-copy, .msg-copy:focus-visible { opacity: 1; }

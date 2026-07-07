@@ -7,7 +7,8 @@ import {
   LayoutGrid, Brain as BrainGlyph, Calendar, SlidersHorizontal, User,
   Search, Folder, PanelLeftClose, PanelLeft, PanelRight, PanelRightClose,
   SquarePen, GitBranch, BarChart3, MoreHorizontal, X, Globe, Code,
-  ChevronLeft, ChevronRight, AlertTriangle, type LucideIcon,
+  ChevronLeft, ChevronRight, AlertTriangle, Copy, Check, RotateCcw,
+  type LucideIcon,
 } from "lucide-react";
 // Lazy-loaded: CodeMirror + its language packs are heavy and only needed when a
 // file is opened, so they're split into an on-demand chunk (smaller startup bundle).
@@ -1041,12 +1042,19 @@ function TileView({ node, sessions, activeId, renderChat, onFocus, onPick, onSpl
    collapse into one expandable strip per consecutive run; answers, plans, diffs and
    errors stay. Per-chat override via the header pill; default in Settings. */
 const MACHINERY = new Set(["thought", "skill_applied", "model_routed", "terminal"]);
-function renderEvents(session: Session, clean: boolean) {
+function renderEvents(session: Session, clean: boolean, onRestore?: (text: string) => void) {
   const out: React.ReactNode[] = [];
   const events = session.events;
+  // "Edit & retry" on the trailing error: put the failed prompt back in the composer.
+  const retryFor = (i: number) => {
+    if (!onRestore || i !== events.length - 1) return undefined;
+    const lastUser = [...events.slice(0, i)].reverse().find((e) => e.type === "user") as { text?: string } | undefined;
+    if (!lastUser?.text) return undefined;
+    return () => onRestore(lastUser.text!);
+  };
   const item = (ev: Ev, i: number) => (
     <div key={i} className="lectern-msg" style={{ display: "flex", flexDirection: "column", alignItems: ev.type === "user" ? "flex-end" : "stretch" }}>
-      <EventView ev={ev} live={session.busy && i === events.length - 1 && ev.type === "message"} />
+      <EventView ev={ev} live={session.busy && i === events.length - 1 && ev.type === "message"} onRetry={ev.type === "error" ? retryFor(i) : undefined} />
     </div>
   );
   if (!clean) {
@@ -1340,7 +1348,7 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
               </div>
             ) : (
               <div style={{ maxWidth: COL, margin: "0 auto", padding: "26px 24px 30px", display: "flex", flexDirection: "column", gap: 15 }}>
-                {renderEvents(session, clean)}
+                {renderEvents(session, clean, (text) => onPatch((s) => ({ ...s, draft: text })))}
                 {session.busy && <Working tokens={runningTokens(session.events)} />}
                 {session.summary && <SummaryView s={session.summary} />}
               </div>
@@ -2295,7 +2303,7 @@ function StreamedMessage({ text, live }: { text: string; live: boolean }) {
 /* Memoized: pushEv only recreates the streaming (last) event object, so during
    60fps streaming every settled row keeps its reference and skips re-render —
    only the live row pays. */
-export const EventView = memo(function EventView({ ev, live }: { ev: Ev; live?: boolean }) {
+export const EventView = memo(function EventView({ ev, live, onRetry }: { ev: Ev; live?: boolean; onRetry?: () => void }) {
   switch (ev.type) {
     case "user": {
       const imgs = (ev as any).images as string[] | undefined;
@@ -2389,16 +2397,50 @@ export const EventView = memo(function EventView({ ev, live }: { ev: Ev; live?: 
         </div>
       );
     }
-    case "message":
-      return <StreamedMessage text={(ev as any).text} live={!!live} />;
+    case "message": {
+      const txt = (ev as any).text as string;
+      if (live) return <StreamedMessage text={txt} live />;
+      return (
+        <div className="msg-wrap" style={{ position: "relative" }}>
+          <StreamedMessage text={txt} live={false} />
+          <MsgCopy text={txt} />
+        </div>
+      );
+    }
     case "limit_hit":
       return <div style={{ fontSize: 13, lineHeight: 1.5, color: WARN, border: "1px solid var(--bd)", background: "var(--panel)", borderRadius: 9, padding: "10px 13px" }}>Usage limit: {(ev as any).reason} — Lectern would fall back to the next backend.</div>;
     case "error":
-      return <div style={{ fontSize: 13, lineHeight: 1.5, color: DANGER, border: "1px solid var(--bd)", background: "var(--panel)", borderRadius: 9, padding: "10px 13px", whiteSpace: "pre-wrap" }}>error: {(ev as any).message}</div>;
+      return (
+        <div style={{ fontSize: 13, lineHeight: 1.5, color: DANGER, border: "1px solid var(--bd)", background: "var(--panel)", borderRadius: 9, padding: "10px 13px", whiteSpace: "pre-wrap" }}>
+          error: {(ev as any).message}
+          {onRetry && (
+            <div style={{ marginTop: 8 }}>
+              <button onClick={onRetry} title="Put the last prompt back in the composer to adjust and resend"
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 26, padding: "0 10px", borderRadius: 7, border: "1px solid var(--bd)", background: "transparent", color: "var(--fg2)", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                <RotateCcw size={12} strokeWidth={1.8} /> Edit &amp; retry
+              </button>
+            </div>
+          )}
+        </div>
+      );
     default:
       return null;
   }
 });
+
+// Hover copy for a prose message — theme-toned (the dark CopyBtn is for code).
+function MsgCopy({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      className="msg-copy icon-btn"
+      onClick={() => { navigator.clipboard?.writeText(text); setDone(true); setTimeout(() => setDone(false), 1200); }}
+      title="Copy message"
+      style={{ position: "absolute", top: -2, right: 0, width: 24, height: 24, borderRadius: 6, border: "none", background: "transparent", color: done ? "var(--fg)" : "var(--fg3)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+      {done ? <Check size={13} strokeWidth={1.8} /> : <Copy size={13} strokeWidth={1.8} />}
+    </button>
+  );
+}
 
 function Logo() {
   return (
