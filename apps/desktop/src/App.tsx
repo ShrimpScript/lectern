@@ -7,7 +7,7 @@ import {
   LayoutGrid, Brain as BrainGlyph, Calendar, SlidersHorizontal, User,
   Search, Folder, PanelLeftClose, PanelLeft, PanelRight, PanelRightClose,
   SquarePen, GitBranch, BarChart3, MoreHorizontal, X, Globe, Code,
-  ChevronLeft, ChevronRight, type LucideIcon,
+  ChevronLeft, ChevronRight, AlertTriangle, type LucideIcon,
 } from "lucide-react";
 // Lazy-loaded: CodeMirror + its language packs are heavy and only needed when a
 // file is opened, so they're split into an on-demand chunk (smaller startup bundle).
@@ -1785,14 +1785,24 @@ function Composer({ session, isClaude, personalAgent, skillsVersion, backends, m
             </div>
           )}
           {(session.images?.length ?? 0) > 0 && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {session.images!.map((im, i) => (
-                <div key={i} style={{ position: "relative", width: 56, height: 56, borderRadius: 8, overflow: "hidden", border: "1px solid var(--bd)" }}>
-                  <img src={im.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  <button onClick={() => onPatch((s) => ({ ...s, images: (s.images ?? []).filter((_, j) => j !== i) }))} title="remove"
-                    style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: "50%", border: "none", background: "rgba(0,0,0,.7)", color: "#fff", lineHeight: 1, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="x" size={10} /></button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {session.images!.map((im, i) => (
+                  <div key={i} style={{ position: "relative", width: 56, height: 56, borderRadius: 8, overflow: "hidden", border: "1px solid var(--bd)" }}>
+                    <img src={im.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <button onClick={() => onPatch((s) => ({ ...s, images: (s.images ?? []).filter((_, j) => j !== i) }))} title="remove"
+                      style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: "50%", border: "none", background: "rgba(0,0,0,.7)", color: "#fff", lineHeight: 1, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="x" size={10} /></button>
+                  </div>
+                ))}
+              </div>
+              {/* Capability truth: images ride as file paths the agent must read. Claude and
+                  Gemini read images; most free/local text models cannot, so say so up front. */}
+              {!(isClaude || session.backend === "antigravity") && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--fg2)" }}>
+                  <AlertTriangle size={12} strokeWidth={1.8} style={{ flexShrink: 0 }} />
+                  This model may not be able to see images — they are passed as file paths. Claude and Gemini read them; most free or local models do not.
                 </div>
-              ))}
+              )}
             </div>
           )}
           {(session.files?.length ?? 0) > 0 && (
