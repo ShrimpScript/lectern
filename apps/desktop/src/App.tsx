@@ -1093,9 +1093,10 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
   const agent = !!personalAgent;
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true); // false once the user scrolls up during a run
+  const [unstuck, setUnstuck] = useState(false); // mirrors !pinned for the jump-to-latest button
   const [tree, setTree] = useState<FileEntry[]>(() => treeCache.get(session.path) ?? []);
   const [treeLoading, setTreeLoading] = useState(false);
-  useEffect(() => { pinned.current = true; scroller.current?.scrollTo({ top: scroller.current.scrollHeight }); }, [session.events.length, session.busy]);
+  useEffect(() => { pinned.current = true; setUnstuck(false); scroller.current?.scrollTo({ top: scroller.current.scrollHeight }); }, [session.events.length, session.busy]);
   // smooth follow while streaming — track rendered growth every frame, but
   // never fight the user: a scroll-up unpins until they return to the bottom
   useEffect(() => {
@@ -1303,10 +1304,10 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
         {/* left pane: MCP servers for the agent (the file tree now lives in the right panel's Files tab) */}
 
         {/* conversation */}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", position: "relative" }}>
           <div
             ref={scroller}
-            onScroll={(e) => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 56; }}
+            onScroll={(e) => { const el = e.currentTarget; const stick = el.scrollHeight - el.scrollTop - el.clientHeight < 56; pinned.current = stick; setUnstuck(!stick); }}
             style={{ flex: 1, overflow: "auto" }}
           >
             {empty ? (
@@ -1349,6 +1350,16 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
             <Suspense fallback={null}>
               <TerminalDrawer sessionId={session.id} cwd={session.path || ""} visible={termOpen} onExit={() => setTermOpen(false)} />
             </Suspense>
+          )}
+          {/* jump to latest — appears when the user scrolled up while content grows */}
+          {!empty && unstuck && (
+            <button
+              onClick={() => { const el = scroller.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" }); pinned.current = true; setUnstuck(false); }}
+              title="Jump to latest"
+              className="icon-btn"
+              style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 168, zIndex: 5, width: 34, height: 34, borderRadius: 999, border: "1px solid var(--bd)", background: "var(--panel)", color: "var(--fg2)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-pop)" }}>
+              <Icon name="chevron" size={16} />
+            </button>
           )}
           {!empty && <Composer session={session} isClaude={isClaude} personalAgent={agent} skillsVersion={skillsVersion} backends={backends} models={models} onPatch={onPatch} onSend={onSend} onCancel={onCancel} onCommand={onCommand} />}
           {!empty && contextBar && (
