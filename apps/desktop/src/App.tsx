@@ -6,7 +6,8 @@ import {
   Paperclip, Mic, ArrowUp, ChevronDown, Home, MessageSquare, Sparkles,
   LayoutGrid, Brain as BrainGlyph, Calendar, SlidersHorizontal, User,
   Search, Folder, PanelLeftClose, PanelLeft, PanelRight, PanelRightClose,
-  SquarePen, GitBranch, BarChart3, MoreHorizontal, X, type LucideIcon,
+  SquarePen, GitBranch, BarChart3, MoreHorizontal, X, Globe, Code,
+  type LucideIcon,
 } from "lucide-react";
 // Lazy-loaded: CodeMirror + its language packs are heavy and only needed when a
 // file is opened, so they're split into an on-demand chunk (smaller startup bundle).
@@ -1198,6 +1199,7 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
   }, [session.events]);
   const [prevSel, setPrevSel] = useState<string | null>(null);
   const [prevText, setPrevText] = useState<string>("");
+  const [prevSrcView, setPrevSrcView] = useState(false); // html artifacts: rendered ↔ source
   const prevItem = previewItems.find((it) => it.id === prevSel) ?? null;
   useEffect(() => {
     if (!prevItem || prevItem.kind !== "file") { setPrevText(""); return; }
@@ -1417,7 +1419,8 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
                       <button key={it.id} onClick={() => setPrevSel(it.id === prevSel ? null : it.id)}
                         title={it.id}
                         style={{ height: 24, padding: "0 9px", borderRadius: 7, border: "1px solid var(--bd)", background: prevSel === it.id ? "var(--hov)" : "transparent", color: prevSel === it.id ? "var(--fg)" : "var(--fg2)", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 5, maxWidth: "100%" }}>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.kind === "url" ? "🌐 " : ""}{it.label}</span>
+                        {it.kind === "url" && <Globe size={11} strokeWidth={1.8} style={{ flexShrink: 0 }} />}
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</span>
                         {it.detail && <span className="mono" style={{ fontSize: 9.5, color: "var(--fg3)" }}>{it.detail}</span>}
                       </button>
                     ))}
@@ -1431,6 +1434,25 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
                     ) : /\.(png|jpe?g|gif|svg|webp)$/i.test(prevItem.id) ? (
                       <div style={{ border: "1px solid var(--bd)", borderRadius: 10, padding: 8, background: "var(--panel2)" }}>
                         <img src={convertFileSrc(prevItem.id.startsWith("/") ? prevItem.id : `${session.path}/${prevItem.id}`)} alt={prevItem.label} style={{ maxWidth: "100%", borderRadius: 6 }} />
+                      </div>
+                    ) : /\.html?$/i.test(prevItem.id) ? (
+                      /* HTML artifact → live render, sandboxed. No allow-same-origin: the
+                         document runs isolated from the app (no tauri APIs, no storage). */
+                      <div style={{ flex: 1, minHeight: 240, border: "1px solid var(--bd)", borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                        {prevSrcView ? (
+                          <pre className="mono" style={{ flex: 1, margin: 0, overflow: "auto", fontSize: 11, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--fg2)", padding: "10px 12px", background: "var(--panel2)" }}>{prevText}</pre>
+                        ) : (
+                          <iframe srcDoc={prevText} title={prevItem.label} sandbox="allow-scripts" style={{ flex: 1, border: "none", background: "#fff" }} />
+                        )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 6px 4px 9px", borderTop: "1px solid var(--bd)" }}>
+                          <span className="mono" style={{ flex: 1, fontSize: 10, color: "var(--fg3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {prevItem.label} · {prevSrcView ? "source" : "rendered · sandboxed"}
+                          </span>
+                          <button className="icon-btn" onClick={() => setPrevSrcView((v) => !v)} title={prevSrcView ? "Show rendered" : "Show source"}
+                            style={{ width: 24, height: 24, borderRadius: 6, border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                            {prevSrcView ? <Globe size={13} strokeWidth={1.8} /> : <Code size={13} strokeWidth={1.8} />}
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <div style={{ flex: 1, minHeight: 0, overflow: "auto", border: "1px solid var(--bd)", borderRadius: 10, padding: "10px 12px", background: "var(--panel2)" }}>
