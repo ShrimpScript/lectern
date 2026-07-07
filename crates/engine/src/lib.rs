@@ -1240,7 +1240,11 @@ impl Engine {
                     }
                 }
                 AgentEvent::FileEdit { path, .. } => steps.push(format!("Edit {path}")),
-                AgentEvent::Terminal { command, .. } => steps.push(format!("Run `{command}`")),
+                AgentEvent::Terminal { command, .. } => {
+                    if !is_meta_command(&command) {
+                        steps.push(format!("Run `{command}`"));
+                    }
+                }
                 AgentEvent::Thought { recalls, .. } => {
                     for r in recalls {
                         rules.push(format!("Relevant: {r}"));
@@ -2427,6 +2431,39 @@ fn derive_name(title: &str) -> String {
 }
 
 /// Remove duplicates while preserving first-seen order.
+/// Exploratory/meta commands describe how the agent looked around, not what the
+/// skill does — recording them as steps makes replays noisy and brittle. Only
+/// state-changing commands belong in a recorded procedure.
+fn is_meta_command(cmd: &str) -> bool {
+    let t = cmd.trim();
+    let first = t.split_whitespace().next().unwrap_or("");
+    let head2 = t.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+    matches!(
+        first,
+        "ls" | "pwd"
+            | "cat"
+            | "head"
+            | "tail"
+            | "echo"
+            | "which"
+            | "whoami"
+            | "cd"
+            | "find"
+            | "grep"
+            | "rg"
+            | "wc"
+            | "stat"
+            | "file"
+            | "du"
+            | "df"
+            | "env"
+            | "printenv"
+    ) || matches!(
+        head2.as_str(),
+        "git status" | "git log" | "git diff" | "git branch" | "git show" | "git remote"
+    )
+}
+
 fn dedup_preserve(v: &mut Vec<String>) {
     let mut seen = HashSet::new();
     v.retain(|x| seen.insert(x.clone()));
@@ -2454,6 +2491,22 @@ fn ensure_gitignore(repo_root: &Path, entry: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn meta_commands_stay_out_of_recordings() {
+        use super::is_meta_command;
+        // exploration is meta
+        assert!(is_meta_command("ls -la"));
+        assert!(is_meta_command("cat src/main.rs"));
+        assert!(is_meta_command("git status"));
+        assert!(is_meta_command("  git diff --stat"));
+        assert!(is_meta_command("grep -rn foo src/"));
+        // state changes are the skill
+        assert!(!is_meta_command("cargo test"));
+        assert!(!is_meta_command("git commit -m x"));
+        assert!(!is_meta_command("npm run build"));
+        assert!(!is_meta_command("python3 tests.py"));
+    }
+
     #[test]
     fn usage_stats_aggregates_days_and_backends() {
         let eng = Engine::with_store(crate::store::Store::open_in_memory().unwrap());
