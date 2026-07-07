@@ -1123,7 +1123,9 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
       invoke<FileEntry[]>("list_dir", { path: session.path }).then((r) => { treeCache.set(session.path, r); setTree(r); setTreeLoading(false); }).catch(() => setTreeLoading(false));
     }, cached ? 600 : 120);
     return () => clearTimeout(t);
-  }, [session.path]);
+    // session.busy: re-list when a run starts/ends so files the agent wrote appear.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.path, session.busy]);
 
   const isClaude = session.backend === "claude-code" || (session.backend === "auto" && claudeAvailable);
   const empty = session.events.length === 0;
@@ -1192,11 +1194,24 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
         for (const m of t.matchAll(/https?:\/\/[^\s)"'`>\]]+/g)) urls.add(m[0].replace(/[.,;:]+$/, ""));
       }
     }
-    return [
+    const items = [
       ...[...files.entries()].map(([path, d]) => ({ kind: "file" as const, id: path, label: path.split("/").pop() ?? path, detail: `+${d.added} −${d.removed}` })),
+    ];
+    // Workspace artifacts: renderable files at the workspace root, regardless of
+    // which backend wrote them — backends that edit in place (e.g. opencode) never
+    // emit file_edit events, so the event-derived list alone misses their output.
+    const eventPaths = [...files.keys()];
+    for (const f of tree) {
+      if (!f.dir && /\.(html?|svg|md|png|jpe?g|gif|webp)$/i.test(f.name)
+        && !eventPaths.some((p) => p === f.name || p.endsWith(`/${f.name}`))) {
+        items.push({ kind: "file" as const, id: f.name, label: f.name, detail: "" });
+      }
+    }
+    return [
+      ...items,
       ...[...urls].slice(0, 10).map((u) => ({ kind: "url" as const, id: u, label: u.replace(/^https?:\/\//, "").slice(0, 34), detail: "" })),
     ];
-  }, [session.events]);
+  }, [session.events, tree]);
   const [prevSel, setPrevSel] = useState<string | null>(null);
   const [prevText, setPrevText] = useState<string>("");
   const [prevSrcView, setPrevSrcView] = useState(false); // html artifacts: rendered ↔ source
