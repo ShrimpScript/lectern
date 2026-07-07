@@ -1065,7 +1065,9 @@ function renderEvents(session: Session, clean: boolean, onRestore?: (text: strin
   const flush = () => {
     if (!group.length) return;
     const idxs = group;
-    out.push(<MachineryStrip key={`m-${idxs[0]}`} events={events} idxs={idxs} />);
+    // live: this strip is the tail of an active run — surface what's happening now.
+    const live = session.busy && idxs[idxs.length - 1] === events.length - 1;
+    out.push(<MachineryStrip key={`m-${idxs[0]}`} events={events} idxs={idxs} live={live} />);
     group = [];
   };
   events.forEach((ev, i) => {
@@ -1078,15 +1080,44 @@ function renderEvents(session: Session, clean: boolean, onRestore?: (text: strin
   return out;
 }
 
-function MachineryStrip({ events, idxs }: { events: Ev[]; idxs: number[] }) {
+function MachineryStrip({ events, idxs, live }: { events: Ev[]; idxs: number[]; live?: boolean }) {
   const [open, setOpen] = useState(false);
   const n = idxs.length;
+  // Compact summary: say WHAT happened, not just how many rows collapsed.
+  let cmds = 0, thoughts = 0, routes = 0, skills = 0;
+  for (const i of idxs) {
+    const t = events[i].type;
+    if (t === "terminal") cmds++;
+    else if (t === "thought") thoughts++;
+    else if (t === "model_routed") routes++;
+    else if (t === "skill_applied") skills++;
+  }
+  const parts: string[] = [];
+  if (cmds) parts.push(`${cmds} command${cmds === 1 ? "" : "s"}`);
+  if (thoughts) parts.push(`${thoughts} thought${thoughts === 1 ? "" : "s"}`);
+  if (routes) parts.push(`${routes} route${routes === 1 ? "" : "s"}`);
+  if (skills) parts.push(`${skills} skill${skills === 1 ? "" : "s"}`);
+  const label = parts.length ? parts.join(" · ") : `${n} background step${n === 1 ? "" : "s"}`;
+  // Live tail: the most recent command still runs — show it on the strip.
+  let tail: string | null = null;
+  if (live) {
+    for (let k = idxs.length - 1; k >= 0; k--) {
+      const e = events[idxs[k]] as { type: string; command?: string; summary?: string };
+      if (e.type === "terminal" && e.command) { tail = `$ ${e.command}`; break; }
+      if (e.type === "thought" && e.summary) { tail = e.summary; break; }
+    }
+  }
   return (
     <div className="lectern-msg" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <button onClick={() => setOpen((o) => !o)}
-        style={{ alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 7, border: "1px solid var(--bd)", borderRadius: 8, background: "var(--panel)", color: "var(--fg3)", fontSize: 11.5, fontWeight: 600, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .18s ease" }} aria-hidden><path d="m9 6 6 6-6 6" /></svg>
-        {n} background step{n === 1 ? "" : "s"}
+        style={{ alignSelf: "flex-start", maxWidth: "100%", display: "inline-flex", alignItems: "center", gap: 7, border: "1px solid var(--bd)", borderRadius: 8, background: "var(--panel)", color: "var(--fg3)", fontSize: 11.5, fontWeight: 600, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .18s ease", flexShrink: 0 }} aria-hidden><path d="m9 6 6 6-6 6" /></svg>
+        {label}
+        {tail && (
+          <span className="mono" style={{ fontWeight: 500, color: "var(--fg2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>
+            · {tail.length > 60 ? tail.slice(0, 60) + "…" : tail} <span style={{ color: "var(--fg3)" }}>· running</span>
+          </span>
+        )}
       </button>
       {open && idxs.map((i) => (
         <div key={i} className="lectern-fadein" style={{ display: "flex", flexDirection: "column" }}><EventView ev={events[i]} /></div>
