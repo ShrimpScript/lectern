@@ -1,6 +1,7 @@
 // Built-in code editor (CodeMirror 6) — open a file from the Files tab, edit it with syntax
 // highlighting, save it back, and leave inline review comments to hand to an agent.
 import { useState, useEffect, useMemo, useRef } from "react";
+import { X } from "lucide-react";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import { rust } from "@codemirror/lang-rust";
@@ -175,7 +176,7 @@ export function CodeEditor({
               <div key={i} style={{ border: "1px solid var(--bd)", borderRadius: 8, padding: "8px 10px", fontSize: 12, color: "var(--fg2)", background: "var(--bg)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 6, marginBottom: 3 }}>
                   <span className="mono" style={{ color: "var(--fg3)", fontSize: 11 }}>line {c.line}</span>
-                  <button onClick={() => setComments((cs) => cs.filter((_, j) => j !== i))} style={{ border: "none", background: "transparent", color: "var(--fg3)", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+                  <button onClick={() => setComments((cs) => cs.filter((_, j) => j !== i))} style={{ border: "none", background: "transparent", color: "var(--fg3)", cursor: "pointer", lineHeight: 1, padding: 0, display: "inline-flex" }}><X size={12} strokeWidth={1.8} /></button>
                 </div>
                 {c.text}
               </div>

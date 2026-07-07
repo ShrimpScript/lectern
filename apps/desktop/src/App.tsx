@@ -6,7 +6,7 @@ import {
   Paperclip, Mic, ArrowUp, ChevronDown, Home, MessageSquare, Sparkles,
   LayoutGrid, Brain as BrainGlyph, Calendar, SlidersHorizontal, User,
   Search, Folder, PanelLeftClose, PanelLeft, PanelRight, PanelRightClose,
-  SquarePen, GitBranch, BarChart3, type LucideIcon,
+  SquarePen, GitBranch, BarChart3, MoreHorizontal, X, type LucideIcon,
 } from "lucide-react";
 // Lazy-loaded: CodeMirror + its language packs are heavy and only needed when a
 // file is opened, so they're split into an on-demand chunk (smaller startup bundle).
@@ -810,7 +810,7 @@ function SessionList({ sessions, activeId, screen, onOpen, onClose, onPin, onPro
         )}
         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
         <span className="mono" style={{ fontSize: 10, color: "var(--fg3)", flexShrink: 0 }}>{relTime(s.updatedAt)}</span>
-        <span data-menu-keep onClick={(e) => { e.stopPropagation(); setNewProjFor(null); setMenu(menu === s.id ? null : s.id); }} title="More" style={{ color: "var(--fg3)", fontSize: 15, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}>⋯</span>
+        <span data-menu-keep onClick={(e) => { e.stopPropagation(); setNewProjFor(null); setMenu(menu === s.id ? null : s.id); }} title="More" style={{ color: "var(--fg3)", lineHeight: 1, padding: "0 3px", flexShrink: 0, display: "inline-flex" }}><Icon name="more" size={15} /></span>
         {menu === s.id && (
           <div data-menu-keep onClick={(e) => e.stopPropagation()} className="lectern-pop" style={{ position: "absolute", top: "calc(100% - 2px)", right: 6, zIndex: 40, minWidth: 178, background: "var(--panel)", border: "1px solid var(--bd)", borderRadius: 10, boxShadow: "0 14px 40px -12px rgba(0,0,0,.3)", padding: 5, fontSize: 12.5, color: "var(--fg2)" }}>
             <div className="lectern-row" style={menuItem} onClick={() => { onPin(s.id); setMenu(null); }}>{s.pinned ? "Unpin" : "Pin"}</div>
@@ -875,7 +875,7 @@ function SessionList({ sessions, activeId, screen, onOpen, onClose, onPin, onPro
                   <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p}</span>
                 )}
                 <span className="mono" style={{ fontSize: 10, color: "var(--fg3)", fontWeight: 400 }}>{items.length}</span>
-                <span data-menu-keep onClick={(e) => { e.stopPropagation(); setProjMenu(projMenu === p ? null : p); }} title="Folder options" style={{ color: "var(--fg3)", fontSize: 13, lineHeight: 1, padding: "0 2px" }}>⋯</span>
+                <span data-menu-keep onClick={(e) => { e.stopPropagation(); setProjMenu(projMenu === p ? null : p); }} title="Folder options" style={{ color: "var(--fg3)", lineHeight: 1, padding: "0 2px", display: "inline-flex" }}><Icon name="more" size={13} /></span>
                 {projMenu === p && (
                   <div data-menu-keep onClick={(e) => e.stopPropagation()} className="lectern-pop" style={{ position: "absolute", top: "100%", right: 4, zIndex: 41, minWidth: 150, background: "var(--panel)", border: "1px solid var(--bd)", borderRadius: 10, boxShadow: "0 14px 40px -12px rgba(0,0,0,.3)", padding: 5, fontSize: 12.5, color: "var(--fg2)" }}>
                     <div className="lectern-row" style={menuItem} onClick={() => { setRenaming(p); setRenameVal(p); setProjMenu(null); }}>Rename folder</div>
@@ -1703,7 +1703,7 @@ function Composer({ session, isClaude, personalAgent, skillsVersion, backends, m
             <div style={{ display: "flex" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "var(--hov)", border: "1px solid var(--bd)", color: "var(--fg)", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 600 }}>
                 {session.attachedSkill}{session.attachedSkillGui ? <span style={{ opacity: 0.6, fontWeight: 500 }}>· replays</span> : null}
-                <button onClick={() => onPatch((s) => ({ ...s, attachedSkill: undefined, attachedSkillGui: undefined }))} title="remove" style={{ border: "none", background: "transparent", color: "var(--fg3)", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+                <button onClick={() => onPatch((s) => ({ ...s, attachedSkill: undefined, attachedSkillGui: undefined }))} title="remove" style={{ border: "none", background: "transparent", color: "var(--fg3)", cursor: "pointer", lineHeight: 1, padding: 0, display: "inline-flex" }}><Icon name="x" size={13} /></button>
               </span>
             </div>
           )}
@@ -1713,7 +1713,7 @@ function Composer({ session, isClaude, personalAgent, skillsVersion, backends, m
                 <div key={i} style={{ position: "relative", width: 56, height: 56, borderRadius: 8, overflow: "hidden", border: "1px solid var(--bd)" }}>
                   <img src={im.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   <button onClick={() => onPatch((s) => ({ ...s, images: (s.images ?? []).filter((_, j) => j !== i) }))} title="remove"
-                    style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: "50%", border: "none", background: "rgba(0,0,0,.7)", color: "#fff", fontSize: 11, lineHeight: 1, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+                    style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: "50%", border: "none", background: "rgba(0,0,0,.7)", color: "#fff", lineHeight: 1, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="x" size={10} /></button>
                 </div>
               ))}
             </div>
@@ -1723,7 +1723,7 @@ function Composer({ session, isClaude, personalAgent, skillsVersion, backends, m
               {session.files!.map((f, i) => (
                 <span key={i} className="mono" style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "var(--panel2)", border: "1px solid var(--bd)", borderRadius: 8, padding: "4px 8px", fontSize: 11, color: "var(--fg2)", maxWidth: 220 }}>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.split("/").pop()}</span>
-                  <button onClick={() => onPatch((s) => ({ ...s, files: (s.files ?? []).filter((_, j) => j !== i) }))} title="remove" style={{ border: "none", background: "transparent", color: "var(--fg3)", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+                  <button onClick={() => onPatch((s) => ({ ...s, files: (s.files ?? []).filter((_, j) => j !== i) }))} title="remove" style={{ border: "none", background: "transparent", color: "var(--fg3)", cursor: "pointer", lineHeight: 1, padding: 0, display: "inline-flex" }}><Icon name="x" size={12} /></button>
                 </span>
               ))}
             </div>
@@ -1746,7 +1746,7 @@ function Composer({ session, isClaude, personalAgent, skillsVersion, backends, m
                 style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${session.mode === "one-shot" ? WARN : "var(--fg)"}`, background: "transparent", color: session.mode === "one-shot" ? WARN : "var(--fg)", borderRadius: 999, padding: "3px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
               >
                 {session.mode} mode <span style={{ opacity: 0.55, fontWeight: 500 }}>on</span>
-                <span style={{ opacity: 0.55 }}>×</span>
+                <span style={{ opacity: 0.55, display: "inline-flex" }}><Icon name="x" size={12} /></span>
               </button>
             </div>
           )}
@@ -1781,7 +1781,9 @@ function Composer({ session, isClaude, personalAgent, skillsVersion, backends, m
                   onYolo={() => onPatch((s) => (s.apply ? { ...s, yolo: !s.yolo } : s))} />
               )}
               {session.busy ? (
-                <button className="send-orb" onClick={onCancel} title="Stop (Esc)" style={{ ...orb, marginLeft: 0, background: "var(--panel2)", color: "var(--fg)", border: "1px solid var(--bd)", cursor: "pointer", fontSize: 11 }}>■</button>
+                <button className="send-orb" onClick={onCancel} title="Stop (Esc)" style={{ ...orb, marginLeft: 0, background: "var(--panel2)", color: "var(--fg)", border: "1px solid var(--bd)", cursor: "pointer" }}>
+                  <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden><rect x="1.5" y="1.5" width="9" height="9" rx="2" fill="currentColor" /></svg>
+                </button>
               ) : (
                 <button className="send-orb" onClick={blocked ? undefined : onSend} disabled={blocked} title="Send (Enter)" style={{ ...orb, marginLeft: 0, background: blocked ? "var(--bd)" : "var(--btn)", color: blocked ? "var(--fg3)" : "var(--btnfg)", cursor: blocked ? "default" : "pointer", fontSize: 17, fontWeight: 700 }}>↑</button>
               )}
@@ -1841,6 +1843,7 @@ const ICONS: Record<string, LucideIcon> = {
   profile: User, search: Search, folder: Folder, collapse: PanelLeftClose,
   panelLeft: PanelLeft, panelLeftClose: PanelLeftClose, panelRight: PanelRight,
   panelRightClose: PanelRightClose, newsession: SquarePen, branch: GitBranch,
+  more: MoreHorizontal, x: X,
 };
 export function Icon({ name, size = 17 }: { name: string; size?: number }) {
   const C = ICONS[name];
