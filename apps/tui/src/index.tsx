@@ -277,12 +277,20 @@ function App() {
       const all = [{ id: "", label: "Auto — best model per task", backend: "auto" }, ...m.claude, ...m.opencode];
       openDialog(
         "models",
-        all.map((mm) => ({
-          id: `${mm.backend} ${mm.id}`,
-          label: mm.label,
-          hint: mm.backend === "auto" ? undefined : mm.backend,
-          live: (mm.id || undefined) === model && (mm.backend === "auto") === (backend === "auto"),
-        })),
+        all.map((mm) => {
+          // Free-tier models (opencode `-free`, openrouter `:free`) get a "free"
+          // hint so they read as no-cost and surface when you filter for "free",
+          // matching the desktop's "Free — no key needed" group.
+          const isFree = /-free$|:free$/.test(mm.id) || / \(free\)$/.test(mm.label);
+          const label = isFree ? mm.label.replace(/ \(free\)$/, "") : mm.label;
+          const hint = mm.backend === "auto" ? undefined : isFree ? `free · ${mm.backend}` : mm.backend;
+          return {
+            id: `${mm.backend} ${mm.id}`,
+            label,
+            hint,
+            live: (mm.id || undefined) === model && (mm.backend === "auto") === (backend === "auto"),
+          };
+        }),
         (it) => {
           const [be, id] = it.id.split(" ");
           setBackend(be === "auto" ? "auto" : be);
