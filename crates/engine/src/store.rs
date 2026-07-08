@@ -619,6 +619,17 @@ impl Store {
         Ok(())
     }
 
+    /// Set status matching a full id OR the short id prefix that `schedule list`
+    /// prints. Returns the number of rows changed so callers can report truthfully
+    /// instead of claiming success on a no-op.
+    pub fn set_schedule_status_by_prefix(&self, id: &str, status: &str) -> Result<usize> {
+        let n = self.conn.execute(
+            "UPDATE schedules SET status = ?2 WHERE id = ?1 OR id LIKE ?1 || '%'",
+            params![id, status],
+        )?;
+        Ok(n)
+    }
+
     /// Atomically claim a due schedule (pending → running). Returns false when
     /// another runner (a second lecternd / `lectern serve`) claimed it first —
     /// the double-run guard. Every run outcome overwrites the status afterwards

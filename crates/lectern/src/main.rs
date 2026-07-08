@@ -1046,8 +1046,11 @@ fn cmd_schedule_list(path: &std::path::Path) -> Result<()> {
 }
 
 fn cmd_schedule_cancel(id: &str) -> Result<()> {
-    Engine::open_default()?.cancel_schedule(id)?;
-    println!("{}", dim("cancelled."));
+    if Engine::open_default()?.cancel_schedule_prefix(id)? {
+        println!("{}", dim("cancelled."));
+    } else {
+        anyhow::bail!("no pending schedule matches id `{id}` (see `lectern schedule list`)");
+    }
     Ok(())
 }
 

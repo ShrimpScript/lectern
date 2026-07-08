@@ -1817,6 +1817,12 @@ per bullet — no preamble, no narration around it.";
         self.store.set_schedule_status(id, "cancelled", None)
     }
 
+    /// Cancel by full id or the short prefix `schedule list` prints. Returns true
+    /// only if a schedule was actually cancelled.
+    pub fn cancel_schedule_prefix(&self, id: &str) -> Result<bool> {
+        Ok(self.store.set_schedule_status_by_prefix(id, "cancelled")? > 0)
+    }
+
     /// Schedule a retry of a task `after_secs` from now (auto-continue on limit).
     pub fn schedule_retry(
         &self,
@@ -2505,6 +2511,34 @@ mod tests {
         assert!(!is_meta_command("git commit -m x"));
         assert!(!is_meta_command("npm run build"));
         assert!(!is_meta_command("python3 tests.py"));
+    }
+
+    #[test]
+    fn cancel_matches_short_id_and_reports_miss() {
+        let eng = Engine::with_store(crate::store::Store::open_in_memory().unwrap());
+        let dir = tmp_workspace(&[("readme.md", "hi")]);
+        let ws = eng.open_workspace(&dir).unwrap();
+        let id = eng
+            .schedule_add(
+                &ws,
+                "do a thing",
+                "mock",
+                false,
+                now_ts() + 3600,
+                "scheduled",
+            )
+            .unwrap();
+        // `schedule list` prints only the first 8 chars — cancel must accept that.
+        let short = &id[..8];
+        assert!(
+            eng.cancel_schedule_prefix(short).unwrap(),
+            "short id should cancel"
+        );
+        // ScheduleRow tuple: (id, prompt, backend, apply, run_at, reason, status)
+        let row = eng.list_schedules(&ws).unwrap().into_iter().next().unwrap();
+        assert_eq!(row.6, "cancelled");
+        // a non-matching id must report a miss, not a false success.
+        assert!(!eng.cancel_schedule_prefix("zzzzzzzz").unwrap());
     }
 
     #[test]
