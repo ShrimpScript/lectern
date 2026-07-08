@@ -198,9 +198,8 @@ fn relevant_snippet(content: &str, query: &str, max_lines: usize) -> (String, bo
     // Slide a max_lines window; pick the one with the highest summed score.
     let scores: Vec<usize> = lines.iter().map(|l| line_score(l)).collect();
     let mut best_start = 0usize;
-    let mut best_sum = 0usize;
     let mut window: usize = scores.iter().take(max_lines).sum();
-    best_sum = window;
+    let mut best_sum = window;
     for start in 1..=lines.len().saturating_sub(max_lines) {
         window = window - scores[start - 1] + scores[start + max_lines - 1];
         if window > best_sum {
