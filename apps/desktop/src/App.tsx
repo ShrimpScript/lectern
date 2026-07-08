@@ -578,8 +578,8 @@ export function App() {
   function stopRecording() {
     invoke<string[]>("stop_recording").then((steps) => { setRecording(false); setRecordSteps(steps); }).catch(() => setRecording(false));
   }
-  function saveRecording(name: string) {
-    const steps = recordSteps ?? [];
+  function saveRecording(name: string, edited?: string[]) {
+    const steps = (edited ?? recordSteps ?? []).map((s) => s.trim()).filter(Boolean);
     invoke<string>("save_recorded_skill", { path: active.path, name: name.trim() || "Recorded workflow", steps })
       .then((n) => { setRecordSteps(null); setScreen("chat"); setSkillsVersion((v) => v + 1); update(active.id, (s) => ({ ...s, events: [...s.events, { type: "message", text: `Saved recorded skill **${n}** (${steps.length} step${steps.length === 1 ? "" : "s"}) — it's in your skills (type / to use it) and synced to Claude Code.` }] })); })
       .catch((e) => update(active.id, (s) => ({ ...s, events: [...s.events, { type: "error", message: `Couldn't save skill: ${String(e)}` }] })));
@@ -687,8 +687,11 @@ function SetupBanner() {
 
 // First-run onboarding — one setup checklist (replaces scattered banners): connect the agent
 // CLIs you have, pick a project, start. Shown until the user completes or skips it.
-function RecordBar({ recording, steps, onStop, onSave, onDiscard }: { recording: boolean; steps: string[] | null; onStop: () => void; onSave: (name: string) => void; onDiscard: () => void }) {
+function RecordBar({ recording, steps, onStop, onSave, onDiscard }: { recording: boolean; steps: string[] | null; onStop: () => void; onSave: (name: string, steps: string[]) => void; onDiscard: () => void }) {
   const [name, setName] = useState("");
+  // Review before it counts: the captured steps, editable — fix phrasing, drop noise.
+  const [edit, setEdit] = useState<string[] | null>(null);
+  const rows = edit ?? steps ?? [];
   const bar: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, flexShrink: 0, padding: "9px 16px", borderBottom: "1px solid var(--bd)", background: "var(--panel)", fontSize: 13 };
   const btn = (bg: string, fg: string): React.CSSProperties => ({ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: bg, color: fg, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 });
   if (recording) {
@@ -700,13 +703,33 @@ function RecordBar({ recording, steps, onStop, onSave, onDiscard }: { recording:
       </div>
     );
   }
-  const n = steps?.length ?? 0;
   return (
-    <div style={bar}>
-      <span style={{ color: "var(--fg)", flexShrink: 0 }}>Captured <b>{n}</b> step{n === 1 ? "" : "s"} — name this skill:</span>
-      <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onSave(name); }} placeholder="e.g. Open the deploy dashboard" className="mono" style={{ ...ctrl, flex: 1, minWidth: 0, height: 30 }} />
-      <button onClick={() => onSave(name)} style={btn("var(--btn)", "var(--btnfg)")}>Save skill</button>
-      <button onClick={onDiscard} style={{ height: 30, padding: "0 12px", borderRadius: 8, border: "1px solid var(--bd)", background: "transparent", color: "var(--fg2)", fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Discard</button>
+    <div style={{ flexShrink: 0, borderBottom: "1px solid var(--bd)", background: "var(--panel)" }}>
+      <div style={{ ...bar, borderBottom: "none" }}>
+        <span style={{ color: "var(--fg)", flexShrink: 0 }}>Captured <b>{rows.length}</b> step{rows.length === 1 ? "" : "s"} — review, then name this skill:</span>
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onSave(name, rows); }} placeholder="e.g. Open the deploy dashboard" className="mono" style={{ ...ctrl, flex: 1, minWidth: 0, height: 30 }} />
+        <button onClick={() => onSave(name, rows)} style={btn("var(--btn)", "var(--btnfg)")}>Save skill</button>
+        <button onClick={onDiscard} style={{ height: 30, padding: "0 12px", borderRadius: 8, border: "1px solid var(--bd)", background: "transparent", color: "var(--fg2)", fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Discard</button>
+      </div>
+      {rows.length > 0 && (
+        <div style={{ maxHeight: 180, overflow: "auto", padding: "0 16px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
+          {rows.map((st, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="mono" style={{ fontSize: 10.5, color: "var(--fg3)", width: 18, textAlign: "right", flexShrink: 0 }}>{i + 1}</span>
+              <input
+                value={st}
+                onChange={(e) => { const next = [...rows]; next[i] = e.target.value; setEdit(next); }}
+                className="mono"
+                style={{ ...ctrl, flex: 1, minWidth: 0, height: 26, fontSize: 11.5 }}
+              />
+              <button onClick={() => setEdit(rows.filter((_, j) => j !== i))} title="Remove this step"
+                style={{ width: 22, height: 22, borderRadius: 6, border: "none", background: "transparent", color: "var(--fg3)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                <Icon name="x" size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
