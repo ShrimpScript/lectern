@@ -559,7 +559,7 @@ impl Engine {
             for s in &paused {
                 wrapper(AgentEvent::Thought {
                     summary: format!(
-                        "skill \"{}\" matched but is paused (failing) — re-enable it in the Marketplace",
+                        "skill \"{}\" matched but is paused (failing) — re-enable it in the Hub",
                         s.name
                     ),
                     recalls: vec![],

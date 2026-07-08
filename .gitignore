@@ -37,3 +37,6 @@ skills-lock.json
 CLAUDE.md
 AGENTS.md
 MEMORY.md
+
+# apps/web lives in the separate lectern-web repo; keep any stray generated files out.
+apps/web/
