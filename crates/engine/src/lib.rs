@@ -2339,6 +2339,9 @@ const IGNORE: &[&str] = &[
     ".data",
     "dist",
     "build",
+    // graphify's own output — the code graph plus its AST cache blobs. Indexing
+    // these pollutes recall with build artifacts instead of source.
+    "graphify-out",
 ];
 const MAX_FILE_BYTES: u64 = 256 * 1024;
 const MAX_FILES: usize = 5000;
@@ -2627,6 +2630,26 @@ mod tests {
             std::fs::write(p, content).unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn indexer_skips_graphify_output() {
+        let dir = tmp_workspace(&[
+            ("src/main.rs", "fn main() {}"),
+            ("README.md", "hello"),
+            ("graphify-out/graph.json", "{\"nodes\":[]}"),
+            ("graphify-out/cache/ast/blob", "cache noise"),
+        ]);
+        let mut out = Vec::new();
+        collect_text_files(&dir, &dir, &mut out, 0);
+        let paths: Vec<&str> = out.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(paths.iter().any(|p| p.contains("main.rs")));
+        assert!(paths.iter().any(|p| p.contains("README")));
+        assert!(
+            !paths.iter().any(|p| p.contains("graphify-out")),
+            "graphify-out must not be indexed, got {paths:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
