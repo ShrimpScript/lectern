@@ -1,6 +1,6 @@
 {
   "name": "@lectern/desktop",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "Lectern desktop app (Tauri v2 + React) \u2014 the agent workspace.",
