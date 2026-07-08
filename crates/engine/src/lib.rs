@@ -170,6 +170,50 @@ fn est_tokens(s: &str) -> u64 {
     (s.len() as u64).div_ceil(4)
 }
 
+/// The slice of a recalled file worth putting in context — the `max_lines` window
+/// with the most query-token overlap, not the whole file. A 2000-line file with one
+/// relevant function costs a handful of lines here instead of the entire thing; this
+/// is what keeps recall from draining tokens when content (not just a path) is needed.
+/// Returns (excerpt, truncated). Falls back to the head of the file when nothing
+/// matches, so a caller always gets *something* representative.
+fn relevant_snippet(content: &str, query: &str, max_lines: usize) -> (String, bool) {
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.len() <= max_lines {
+        return (content.to_string(), false);
+    }
+    let terms: Vec<String> = query
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| t.len() >= 3)
+        .map(|t| t.to_string())
+        .collect();
+    // Per-line relevance = number of query terms it contains.
+    let line_score = |l: &str| -> usize {
+        if terms.is_empty() {
+            return 0;
+        }
+        let low = l.to_lowercase();
+        terms.iter().filter(|t| low.contains(t.as_str())).count()
+    };
+    // Slide a max_lines window; pick the one with the highest summed score.
+    let scores: Vec<usize> = lines.iter().map(|l| line_score(l)).collect();
+    let mut best_start = 0usize;
+    let mut best_sum = 0usize;
+    let mut window: usize = scores.iter().take(max_lines).sum();
+    best_sum = window;
+    for start in 1..=lines.len().saturating_sub(max_lines) {
+        window = window - scores[start - 1] + scores[start + max_lines - 1];
+        if window > best_sum {
+            best_sum = window;
+            best_start = start;
+        }
+    }
+    let end = (best_start + max_lines).min(lines.len());
+    let body = lines[best_start..end].join("\n");
+    let header = format!("… lines {}-{} of {} …\n", best_start + 1, end, lines.len());
+    (format!("{header}{body}"), true)
+}
+
 /// Today's date as YYYY-MM-DD (UTC), without pulling in a date crate.
 fn today_ymd() -> String {
     let days = now_ts().div_euclid(86_400);
@@ -359,7 +403,13 @@ impl Engine {
             }
         };
 
-        // vector (brute-force cosine over stored embeddings)
+        // vector (brute-force cosine over stored embeddings), gated by a relevance
+        // floor. Without it, recall returns the top-k files for ANY prompt — so a
+        // greeting like "hey hows it going" surfaces whatever scored least-badly
+        // (unrelated files from a broad workspace), which is noise and can send the
+        // agent off reading junk. Calibrated on the hash embedder: greetings cosine
+        // <=0.07 against any file, while genuinely relevant files land at 0.18-0.51.
+        // 0.12 sits cleanly between, so noise is dropped and real matches survive.
         let qv = self.embedder.embed(prompt);
         let mut scored: Vec<(f32, String)> = self
             .store
@@ -367,6 +417,7 @@ impl Engine {
             .unwrap_or_default()
             .into_iter()
             .map(|(path, bytes)| (embed::cosine(&qv, &embed::from_bytes(&bytes)), path))
+            .filter(|(score, _)| *score >= RECALL_RELEVANCE_FLOOR)
             .collect();
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         let vector: Vec<String> = scored.into_iter().take(k * 2).map(|(_, p)| p).collect();
@@ -418,7 +469,9 @@ impl Engine {
             let Ok(content) = std::fs::read_to_string(&full) else {
                 continue;
             };
-            let toks = est_tokens(&content);
+            // Only the query-relevant window enters context, not the whole file.
+            let (snippet, snipped) = relevant_snippet(&content, prompt, RECALL_SNIPPET_LINES);
+            let toks = est_tokens(&snippet);
             if token_estimate + toks > budget_tokens {
                 truncated = true;
                 // include a signature-only entry instead of the whole file
@@ -426,7 +479,7 @@ impl Engine {
                     path: path.clone(),
                     bytes: content.len() as u64,
                     tokens: 0,
-                    reason: "recalled (hybrid) — omitted (over budget; would summarize)".into(),
+                    reason: "recalled — omitted (over budget)".into(),
                 });
                 continue;
             }
@@ -435,7 +488,12 @@ impl Engine {
                 path: path.clone(),
                 bytes: content.len() as u64,
                 tokens: toks,
-                reason: "recalled (hybrid: lexical+vector)".into(),
+                reason: if snipped {
+                    "recalled (hybrid: lexical+vector) — relevant snippet only"
+                } else {
+                    "recalled (hybrid: lexical+vector)"
+                }
+                .into(),
             });
         }
         // Matched skills are injected into context (their rules/recipe) + counted.
@@ -2345,6 +2403,13 @@ const IGNORE: &[&str] = &[
 ];
 const MAX_FILE_BYTES: u64 = 256 * 1024;
 const MAX_FILES: usize = 5000;
+/// Minimum query↔file cosine for a vector hit to count as "relevant" recall.
+/// Below this, a match is indistinguishable from trigram-overlap noise. See the
+/// calibration note in `recall()`.
+const RECALL_RELEVANCE_FLOOR: f32 = 0.12;
+/// When recall injects file *content* (not just a path), this caps each file to its
+/// most-relevant window so a large file can't blow the token budget on its own.
+const RECALL_SNIPPET_LINES: usize = 24;
 
 /// Walk `dir`, collecting (relative-path, utf8-content) for text files (skipping
 /// ignored dirs, hidden dirs, oversized/binary files). Bounded by MAX_FILES.
@@ -2630,6 +2695,58 @@ mod tests {
             std::fs::write(p, content).unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn snippet_extracts_relevant_window_not_whole_file() {
+        // A long file where the relevant function is buried in the middle.
+        let mut lines: Vec<String> = (0..200).map(|i| format!("// filler line {i}")).collect();
+        lines[120] = "fn schedule_retry(after_secs: i64) {".into();
+        lines[121] = "    // recompute the next run window".into();
+        lines[122] = "    enqueue(after_secs);".into();
+        let content = lines.join("\n");
+        let (snip, truncated) = relevant_snippet(&content, "schedule retry window", 24);
+        assert!(truncated, "a 200-line file must be snipped");
+        assert!(
+            snip.contains("schedule_retry"),
+            "snippet should hold the relevant window"
+        );
+        assert!(
+            est_tokens(&snip) < est_tokens(&content) / 4,
+            "snippet must be far cheaper than the whole file"
+        );
+        // Nothing matches → falls back to the head, still bounded.
+        let (head, t2) = relevant_snippet(&content, "zzzznomatch", 24);
+        assert!(t2 && head.lines().count() <= 25);
+    }
+
+    #[test]
+    fn recall_floor_drops_noise_keeps_relevant() {
+        // Reproduces the reported bug: a workspace that also holds unrelated files
+        // (e.g. FL Studio projects) must NOT surface them for a greeting.
+        let eng = Engine::with_store(crate::store::Store::open_in_memory().unwrap());
+        let dir = tmp_workspace(&[
+            ("src/queue.py", "class TaskQueue:\n    def push(self, task): self._items.append(task)\n    def pop(self): return self._items.pop(0)"),
+            ("README.md", "# taskflow\nA small task queue with a pluggable scheduler."),
+            ("FLSTUDIO/Laurie Webb Vox.ini", "[General]\nTempo=140\nName=Laurie Webb Vox\nPlugin=Fruity NoteBook"),
+            ("FLSTUDIO/.update-timestamp", "2026-07-08"),
+        ]);
+        let ws = eng.open_workspace(&dir).unwrap();
+        eng.index_workspace(&ws).unwrap();
+
+        // A greeting has no genuine match → recall must be empty (was: 4 FL files).
+        assert!(
+            eng.recall(&ws, "hey hows it going", 4).is_empty(),
+            "greeting should recall nothing"
+        );
+        // A real task still recalls the relevant project files, and never the FL noise.
+        let hits = eng.recall(&ws, "fix the task queue scheduler", 4);
+        assert!(!hits.is_empty(), "a real task should recall something");
+        assert!(
+            !hits.iter().any(|h| h.contains("FLSTUDIO")),
+            "recall must not surface unrelated FL Studio files, got {hits:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
