@@ -20,6 +20,100 @@ const PROVIDER_INSTALL: Record<string, string> = {
   opencode: "curl -fsSL https://opencode.ai/install | bash",
 };
 
+type OS = "macos" | "linux" | "windows";
+type SetupSpec = {
+  cmd: Partial<Record<OS, string>>; // install command per OS
+  oneClick?: boolean; // has a vetted run_setup installer (unix)
+  auth?: string; // step after install
+  guide: string; // Lectern docs (allowed by open_url)
+  external?: string; // provider's official page
+};
+// Everything the setup helper needs, per provider. Commands mirror the vetted ones in
+// the `run_setup` Tauri command so one-click and copy-paste stay in sync.
+const PROVIDER_SETUP: Record<string, SetupSpec> = {
+  "claude-code": {
+    cmd: { macos: "npm i -g @anthropic-ai/claude-code", linux: "npm i -g @anthropic-ai/claude-code", windows: "npm i -g @anthropic-ai/claude-code" },
+    auth: "then run `claude` once and sign in with your Claude subscription.",
+    guide: "https://getlectern.vercel.app/docs/integrations",
+    external: "https://docs.claude.com/claude-code",
+  },
+  antigravity: {
+    cmd: { macos: "Download Antigravity, then run `agy` once", linux: "Download Antigravity, then run `agy` once", windows: "Download Antigravity, then run `agy` once" },
+    auth: "signs in with your Google account; no API key.",
+    guide: "https://getlectern.vercel.app/docs/integrations",
+    external: "https://antigravity.google/",
+  },
+  opencode: {
+    cmd: { macos: "curl -fsSL https://opencode.ai/install | bash", linux: "curl -fsSL https://opencode.ai/install | bash", windows: "See the guide (npm or scoop)" },
+    oneClick: true,
+    auth: "built-in free models work with no key; for OpenRouter/others run `opencode auth login`.",
+    guide: "https://getlectern.vercel.app/docs/integrations",
+    external: "https://opencode.ai/",
+  },
+  openrouter: {
+    cmd: { macos: "Included with OpenCode — run `opencode auth login`", linux: "Included with OpenCode — run `opencode auth login`", windows: "Included with OpenCode — run `opencode auth login`" },
+    auth: "add your OpenRouter key when prompted; then its models appear in the picker.",
+    guide: "https://getlectern.vercel.app/docs/integrations",
+    external: "https://openrouter.ai/keys",
+  },
+  ollama: {
+    cmd: { linux: "curl -fsSL https://ollama.com/install.sh | sh", macos: "brew install ollama", windows: "Download the Windows installer" },
+    oneClick: true,
+    auth: "then `ollama pull llama3.2` (or any model) — Lectern auto-detects what you have.",
+    guide: "https://getlectern.vercel.app/docs/integrations",
+    external: "https://ollama.com/",
+  },
+};
+
+function CopyBtn({ text }: { text: string }) {
+  const [ok, setOk] = useState(false);
+  return (
+    <button onClick={() => { navigator.clipboard?.writeText(text).then(() => { setOk(true); setTimeout(() => setOk(false), 1400); }).catch(() => {}); }}
+      style={{ height: 26, padding: "0 10px", fontSize: 11.5, fontWeight: 600, color: "var(--fg2)", background: "transparent", border: "1px solid var(--bd)", borderRadius: 7, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+      {ok ? "Copied ✓" : "Copy"}
+    </button>
+  );
+}
+
+// Expandable per-provider setup: OS-aware command + one-click install (where vetted)
+// + copy + guide/official links. Zeke's "Both": run it here when it's safe, always
+// leave the copy-paste + guide as the fallback.
+function ProviderSetup({ id, os, onRecheck }: { id: string; os: OS; onRecheck: () => void }) {
+  const spec = PROVIDER_SETUP[id];
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState("");
+  if (!spec) return null;
+  const cmd = spec.cmd[os] ?? spec.cmd.linux ?? "See the guide";
+  const runnable = !!spec.oneClick && os !== "windows";
+  const install = () => {
+    setBusy(true); setOut("Running…");
+    invoke<string>("run_setup", { provider: id })
+      .then((r) => { setOut(r); onRecheck(); })
+      .catch((e) => setOut(String(e)))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div style={{ marginTop: 10, padding: "12px 14px", background: "var(--panel2)", border: "1px solid var(--bd2)", borderRadius: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <code style={{ flex: 1, minWidth: 180, fontSize: 11.5, color: "var(--fg)", background: "var(--bg)", border: "1px solid var(--bd)", borderRadius: 7, padding: "6px 9px", overflowX: "auto", whiteSpace: "nowrap" }} className="mono">{cmd}</code>
+        <CopyBtn text={cmd} />
+        {runnable && (
+          <button onClick={install} disabled={busy}
+            style={{ height: 26, padding: "0 12px", fontSize: 11.5, fontWeight: 700, color: busy ? "var(--fg3)" : "var(--btnfg)", background: busy ? "transparent" : "var(--btn)", border: busy ? "1px solid var(--bd)" : "none", borderRadius: 7, cursor: busy ? "default" : "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+            {busy ? "Installing…" : "Install"}
+          </button>
+        )}
+      </div>
+      {spec.auth && <div style={{ fontSize: 11.5, color: "var(--fg2)", lineHeight: 1.5 }}>{spec.auth}</div>}
+      {out && <pre style={{ margin: 0, maxHeight: 160, overflow: "auto", fontSize: 10.5, color: "var(--fg2)", background: "var(--bg)", border: "1px solid var(--bd)", borderRadius: 7, padding: "8px 10px", whiteSpace: "pre-wrap" }} className="mono">{out}</pre>}
+      <div style={{ display: "flex", gap: 14, fontSize: 11.5 }}>
+        <button onClick={() => invoke("open_url", { url: spec.guide }).catch(() => {})} style={{ background: "none", border: "none", color: "var(--fg)", cursor: "pointer", fontFamily: "inherit", fontSize: 11.5, textDecoration: "underline", padding: 0 }}>Full guide →</button>
+        {spec.external && <button onClick={() => invoke("open_url", { url: spec.external! }).catch(() => {})} style={{ background: "none", border: "none", color: "var(--fg2)", cursor: "pointer", fontFamily: "inherit", fontSize: 11.5, padding: 0 }}>Official page →</button>}
+      </div>
+    </div>
+  );
+}
+
 function ModelPicker({ backend, model, backends, models, onChange }: { backend: string; model: string; backends: BackendInfo[]; models: ModelOpt[]; onChange: (backend: string, model: string) => void }) {
   const avail = (b: string) => b === "auto" || b === "mock" || (backends.find((x) => x.id === b)?.available ?? false);
   const cur = models.find((m) => m.backend === backend && (m.backend === "auto" || m.backend === "mock" || m.model === model)) ?? models[0];
@@ -39,6 +133,9 @@ function ModelPicker({ backend, model, backends, models, onChange }: { backend: 
 export function Settings({ backends, models, prefs, mcp, onMcp, onPrefs, onRecheck, onBrowse }: { backends: BackendInfo[]; models: ModelOpt[]; prefs: Prefs; mcp: McpServer[]; onMcp: () => void; onPrefs: (p: Partial<Prefs>) => void; onRecheck: () => void; onBrowse?: () => void }) {
   const theme = prefs.theme;
   const [classifier, setClassifier] = useState(false);
+  const [os, setOs] = useState<OS>("linux");
+  const [setupOpen, setSetupOpen] = useState<string | null>(null);
+  useEffect(() => { invoke<OS>("os_platform").then(setOs).catch(() => {}); }, []);
   useEffect(() => { invoke<boolean>("routing_classifier").then(setClassifier).catch(() => {}); }, []);
   const toggleClassifier = () => { const v = !classifier; setClassifier(v); invoke("set_routing_classifier", { on: v }).catch(() => {}); };
   const themeToggle = (
@@ -61,28 +158,43 @@ export function Settings({ backends, models, prefs, mcp, onMcp, onPrefs, onReche
             Lectern drives agent tools installed on this machine — <b style={{ color: "var(--fg)" }}>Claude Code</b>, <b style={{ color: "var(--fg)" }}>Antigravity</b>, and <b style={{ color: "var(--fg)" }}>OpenCode</b>. Each connected provider unlocks its models in the model menu; pick one per session or let <b style={{ color: "var(--fg)" }}>Auto</b> route each task. The Conductor (<span className="mono">/conduct</span>) hands sub-tasks to whichever model fits.
           </div>
           <div style={{ border: "1px solid var(--bd)", borderRadius: 12, overflow: "hidden", background: "var(--panel)" }}>
-            {backends.filter((b) => b.id !== "mock").map((b, i) => (
-              <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "14px 16px", borderTop: i ? "1px solid var(--bd2)" : "none" }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 12, minWidth: 0 }}>
-                  {providerIcon(b.id, 17) && (
-                    <span style={{ width: 32, height: 32, border: "1px solid var(--bd)", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--fg)", flexShrink: 0 }}>{providerIcon(b.id, 17)}</span>
-                  )}
-                  <div style={{ minWidth: 0, lineHeight: 1.45 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{b.label.replace(" (many providers)", "")}</div>
-                    <div style={{ fontSize: 12, color: "var(--fg2)", marginTop: 2 }}>{PROVIDER_UNLOCKS[b.id] ?? ""}</div>
-                    <div style={{ fontSize: 11.5, color: "var(--fg3)", marginTop: 2 }}>
-                      {b.available
-                        ? <span className="mono" style={{ fontSize: 10.5 }}>{b.detail}</span>
-                        : <>Not installed — <span className="mono" style={{ fontSize: 10.5 }}>{PROVIDER_INSTALL[b.id] ?? "see docs"}</span></>}
+            {backends.filter((b) => b.id !== "mock").map((b, i) => {
+              const hasSetup = !!PROVIDER_SETUP[b.id];
+              const open = setupOpen === b.id;
+              return (
+              <div key={b.id} style={{ borderTop: i ? "1px solid var(--bd2)" : "none" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "14px 16px" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, minWidth: 0 }}>
+                    {providerIcon(b.id, 17) && (
+                      <span style={{ width: 32, height: 32, border: "1px solid var(--bd)", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--fg)", flexShrink: 0 }}>{providerIcon(b.id, 17)}</span>
+                    )}
+                    <div style={{ minWidth: 0, lineHeight: 1.45 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{b.label.replace(" (many providers)", "")}</div>
+                      <div style={{ fontSize: 12, color: "var(--fg2)", marginTop: 2 }}>{PROVIDER_UNLOCKS[b.id] ?? ""}</div>
+                      <div style={{ fontSize: 11.5, color: "var(--fg3)", marginTop: 2 }}>
+                        {b.available
+                          ? <span className="mono" style={{ fontSize: 10.5 }}>{b.detail}</span>
+                          : <>Not installed{hasSetup ? "" : <> — <span className="mono" style={{ fontSize: 10.5 }}>{PROVIDER_INSTALL[b.id] ?? "see docs"}</span></>}</>}
+                      </div>
                     </div>
                   </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    {hasSetup && (
+                      <button onClick={() => setSetupOpen(open ? null : b.id)}
+                        style={{ height: 26, padding: "0 11px", fontSize: 11.5, fontWeight: 600, color: "var(--fg2)", background: "transparent", border: "1px solid var(--bd)", borderRadius: 7, cursor: "pointer", fontFamily: "inherit" }}>
+                        {open ? "Close" : b.available ? "Set up ▾" : "Install ▾"}
+                      </button>
+                    )}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 600, color: b.available ? "var(--fg)" : "var(--fg3)", border: "1px solid var(--bd)", borderRadius: 999, padding: "4px 11px" }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: b.available ? ACCENT : "var(--bd2)" }} />
+                      {b.available ? "Connected" : "Not installed"}
+                    </span>
+                  </div>
                 </div>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, fontSize: 11.5, fontWeight: 600, color: b.available ? "var(--fg)" : "var(--fg3)", border: "1px solid var(--bd)", borderRadius: 999, padding: "4px 11px" }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: b.available ? ACCENT : "var(--bd2)" }} />
-                  {b.available ? "Connected" : "Not installed"}
-                </span>
+                {open && <div style={{ padding: "0 16px 14px 60px" }}><ProviderSetup id={b.id} os={os} onRecheck={onRecheck} /></div>}
               </div>
-            ))}
+              );
+            })}
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
             <div className="mono" style={{ fontSize: 11, color: "var(--fg3)", lineHeight: 1.6, flex: 1 }}>Managed locally — keys stay on your machine, never our servers. Add/re-auth via the CLI (`claude`, `lectern login`).</div>

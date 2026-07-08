@@ -2202,8 +2202,18 @@ fn app_meta() -> serde_json::Value {
 /// pages so this can never become an arbitrary-open primitive.
 #[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
-    let allowed = url.starts_with("https://github.com/") || url.starts_with("https://getlectern.vercel.app/");
-    if !allowed {
+    // Lectern's own site + GitHub, plus the official install pages of the providers
+    // the setup helper points at. Anything else is refused.
+    const HOSTS: &[&str] = &[
+        "https://github.com/",
+        "https://getlectern.vercel.app/",
+        "https://opencode.ai/",
+        "https://ollama.com/",
+        "https://openrouter.ai/",
+        "https://antigravity.google/",
+        "https://docs.claude.com/",
+    ];
+    if !HOSTS.iter().any(|h| url.starts_with(h)) {
         return Err("URL not allowed".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -2212,6 +2222,60 @@ async fn open_url(url: String) -> Result<(), String> {
             .spawn()
             .map(|_| ())
             .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The OS family, for showing the right install command in the setup helper.
+#[tauri::command]
+fn os_platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    }
+}
+
+/// One-click provider setup. Takes a provider *id* (not an arbitrary command) and
+/// runs a vetted, hardcoded, user-space installer for it — so the renderer can't turn
+/// this into a general shell. Only providers whose installer is safe to run
+/// unattended (no sudo, official script) are offered here; the rest return an error
+/// that steers the UI to the copy-command + guide fallback. Returns combined output.
+#[tauri::command]
+async fn run_setup(provider: String) -> Result<String, String> {
+    // (unix-only one-click; Windows users get the guided path)
+    let cmd: &str = match (provider.as_str(), cfg!(target_os = "macos")) {
+        // OpenCode's official installer is a user-space script (no sudo).
+        ("opencode", _) => "curl -fsSL https://opencode.ai/install | bash",
+        // Ollama: official script on Linux; Homebrew on macOS.
+        ("ollama", false) => "curl -fsSL https://ollama.com/install.sh | sh",
+        ("ollama", true) => "brew install ollama",
+        _ => {
+            return Err("no one-click installer for this provider — use the guide".into());
+        }
+    };
+    if cfg!(target_os = "windows") {
+        return Err("one-click setup isn't available on Windows yet — use the guide".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = std::process::Command::new("sh")
+            .arg("-lc")
+            .arg(cmd)
+            .output()
+            .map_err(|e| e.to_string())?;
+        let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+        text.push_str(&String::from_utf8_lossy(&out.stderr));
+        if out.status.success() {
+            Ok(format!("{text}\n\n✓ done — click Re-check to detect it."))
+        } else {
+            Err(format!(
+                "installer exited with an error:\n{}",
+                text.trim_end()
+            ))
+        }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2855,6 +2919,8 @@ fn main() {
             read_theme,
             save_theme_file,
             open_config_file,
+            os_platform,
+            run_setup,
             set_user_profile,
             doctor,
             list_dir,
