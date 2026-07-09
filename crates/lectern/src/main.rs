@@ -358,6 +358,11 @@ enum SkillsCmd {
         #[arg(short, long, default_value = ".")]
         path: PathBuf,
     },
+    /// Import a skill from a file — Lectern's `.json` bundle or a `.md` SKILL.md.
+    Import {
+        /// Path to a `.json` skill bundle or a SKILL.md file.
+        file: PathBuf,
+    },
 }
 
 fn main() {
@@ -443,6 +448,7 @@ fn run() -> Result<()> {
                 session,
                 path,
             } => cmd_skills_record(name, session, &path),
+            SkillsCmd::Import { file } => cmd_skills_import(&file),
         },
         Cmd::Login { url } => cmd_login(url),
         Cmd::Logout => cmd_logout(),
@@ -1229,6 +1235,24 @@ fn cmd_sessions(path: &std::path::Path) -> Result<()> {
             title
         );
     }
+    Ok(())
+}
+
+fn cmd_skills_import(file: &std::path::Path) -> Result<()> {
+    let content =
+        std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
+    let engine = Engine::open_default()?;
+    // Accept both Lectern's JSON bundle and the ecosystem's SKILL.md open standard.
+    let is_md = file
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("md"));
+    let skill = if is_md {
+        engine.import_skill_md(&content)
+    } else {
+        engine.import_skill(&content)
+    }
+    .with_context(|| format!("importing {}", file.display()))?;
+    println!("{GREEN}✓{RESET} imported skill {}", bold(&skill.name));
     Ok(())
 }
 
