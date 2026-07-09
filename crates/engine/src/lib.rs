@@ -464,19 +464,42 @@ impl Engine {
         // <=0.07 against any file, while genuinely relevant files land at 0.18-0.51.
         // 0.12 sits cleanly between, so noise is dropped and real matches survive.
         let qv = self.embedder.embed(prompt);
-        let mut scored: Vec<(f32, String)> = self
-            .store
-            .all_vectors(&ws.id)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(path, bytes)| (embed::cosine(&qv, &embed::from_bytes(&bytes)), path))
+        let all = self.store.all_vectors(&ws.id).unwrap_or_default();
+        let mut scored: Vec<(f32, String)> = all
+            .iter()
+            .map(|(path, bytes)| (embed::cosine(&qv, &embed::from_bytes(bytes)), path.clone()))
             .filter(|(score, _)| *score >= RECALL_RELEVANCE_FLOOR)
             .collect();
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         let vector: Vec<String> = scored.into_iter().take(k * 2).map(|(_, p)| p).collect();
 
-        let (nlex, nvec) = (lexical.len(), vector.len());
-        let mut out = rrf(&[lexical, vector], k);
+        // Path/filename signal: files whose PATH contains a query word — a precise "you
+        // named a file" hint ("the scheduler" → src/scheduler.rs) that content embeddings
+        // can miss or drop under the relevance floor. Fused as a third signal, not a
+        // rerank, so RRF weighs agreement across all three.
+        let toks: Vec<String> = prompt
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|t| t.len() >= 4)
+            .map(str::to_string)
+            .collect();
+        let path_hits: Vec<String> = if toks.is_empty() {
+            Vec::new()
+        } else {
+            let mut ph: Vec<(usize, String)> = all
+                .iter()
+                .filter_map(|(path, _)| {
+                    let pl = path.to_lowercase();
+                    let n = toks.iter().filter(|t| pl.contains(t.as_str())).count();
+                    (n > 0).then_some((n, path.clone()))
+                })
+                .collect();
+            ph.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+            ph.into_iter().take(k * 2).map(|(_, p)| p).collect()
+        };
+
+        let (nlex, nvec, npath) = (lexical.len(), vector.len(), path_hits.len());
+        let mut out = rrf(&[lexical, vector, path_hits], k);
         // Phase B: fold in graphify code-graph symbols relevant to the prompt (functions/
         // types/files), so the agent starts knowing the relevant code structure. No-op when
         // no graph has been built for this workspace.
@@ -484,7 +507,7 @@ impl Engine {
         crate::diag::log(
             "recall",
             &format!(
-                "{} hit(s) fused from {nlex} lexical + {nvec} vector (k={k})",
+                "{} hit(s) fused from {nlex} lexical + {nvec} vector + {npath} path (k={k})",
                 out.len()
             ),
         );
@@ -2963,6 +2986,28 @@ mod tests {
         assert!(
             !hits.iter().any(|h| h.contains("FLSTUDIO")),
             "recall must not surface unrelated FL Studio files, got {hits:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recall_surfaces_a_file_named_in_the_query() {
+        // The file's CONTENT is unrelated to "authentication" — only its path names it.
+        // The path signal (fused via RRF) should still surface it when the query does.
+        let eng = Engine::with_store(crate::store::Store::open_in_memory().unwrap());
+        let dir = tmp_workspace(&[
+            (
+                "src/authentication.py",
+                "def helper(x):\n    return x + 1\n",
+            ),
+            ("notes/todo.txt", "buy milk\nwalk the dog\ncall mom"),
+        ]);
+        let ws = eng.open_workspace(&dir).unwrap();
+        eng.index_workspace(&ws).unwrap();
+        let hits = eng.recall(&ws, "fix the authentication timeout", 4);
+        assert!(
+            hits.iter().any(|h| h.contains("authentication")),
+            "a file named in the query should surface, got {hits:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
