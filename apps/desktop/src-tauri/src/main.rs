@@ -967,7 +967,7 @@ async fn import_skill_file() -> Result<Option<String>, String> {
         let out = std::process::Command::new("zenity")
             .args([
                 "--file-selection",
-                "--file-filter=Skill bundles (*.json) | *.json",
+                "--file-filter=Skills (*.json *.md) | *.json *.md",
                 "--title=Import a skill",
             ])
             .output()
@@ -979,9 +979,14 @@ async fn import_skill_file() -> Result<Option<String>, String> {
         if p.is_empty() {
             return Ok(None);
         }
-        let json = std::fs::read_to_string(&p).map_err(|e| e.to_string())?;
+        let content = std::fs::read_to_string(&p).map_err(|e| e.to_string())?;
         let engine = Engine::open_default().map_err(|e| e.to_string())?;
-        let s = engine.import_skill(&json).map_err(|e| e.to_string())?;
+        // Accept both Lectern's JSON bundles and the ecosystem's SKILL.md open standard.
+        let s = if p.to_lowercase().ends_with(".md") {
+            engine.import_skill_md(&content).map_err(|e| e.to_string())?
+        } else {
+            engine.import_skill(&content).map_err(|e| e.to_string())?
+        };
         Ok(Some(s.name))
     })
     .await

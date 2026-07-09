@@ -1617,6 +1617,13 @@ impl Engine {
         self.upsert_skill(&b.name, &b.description, b.triggers, b.rules, b.steps)
     }
 
+    /// Import a skill from SKILL.md text (the open-standard ecosystem format), converting
+    /// it to Lectern's model so any of the ecosystem's SKILL.md skills can be installed.
+    pub fn import_skill_md(&self, md: &str) -> Result<Skill> {
+        let b = parse_skill_md(md)?;
+        self.upsert_skill(&b.name, &b.description, b.triggers, b.rules, b.steps)
+    }
+
     /// Browse the community hub — read-only, no auth. Returns the index entries.
     pub fn browse_registry(&self) -> Result<Vec<crate::registry::RegistryEntry>> {
         crate::registry::fetch_index(&crate::registry::config())
@@ -2146,6 +2153,73 @@ pub fn gui_replay_steps(steps: &[String]) -> Option<Vec<(f64, String)>> {
 
 /// Render a learned skill as a Claude Code SKILL.md. Recorded GUI workflows become a
 /// self-contained, directly-runnable recipe so the agent can just execute them.
+/// Parse a SKILL.md (the open-standard skill format the 2026 ecosystem uses: a YAML-ish
+/// frontmatter block plus a markdown body) into Lectern's portable [`SkillBundle`], so
+/// ecosystem skills — not just Lectern-recorded ones — can be imported. Frontmatter
+/// supplies name/description/(optional triggers); the body's paragraphs become the skill's
+/// rules. The inverse of [`render_skill_md`].
+fn parse_skill_md(md: &str) -> Result<SkillBundle> {
+    let md = md.trim_start_matches('\u{feff}').trim_start();
+    // Frontmatter is a `---` … `---` block at the very top.
+    let (front, body) = match md.strip_prefix("---") {
+        Some(rest) => match rest.find("\n---") {
+            Some(end) => (&rest[..end], rest[end + 4..].trim_start_matches('\n')),
+            None => ("", md),
+        },
+        None => ("", md),
+    };
+    let mut name = String::new();
+    let mut description = String::new();
+    let mut triggers: Vec<String> = Vec::new();
+    for line in front.lines() {
+        let l = line.trim();
+        if let Some(v) = l.strip_prefix("name:") {
+            name = v.trim().trim_matches(['"', '\'']).to_string();
+        } else if let Some(v) = l.strip_prefix("description:") {
+            description = v.trim().trim_matches(['"', '\'']).to_string();
+        } else if let Some(v) = l.strip_prefix("triggers:") {
+            triggers = v
+                .trim()
+                .trim_matches(['[', ']'])
+                .split([',', ';'])
+                .map(|t| t.trim().trim_matches(['"', '\'']).to_string())
+                .filter(|t| !t.is_empty())
+                .collect();
+        }
+    }
+    // Strip Lectern's own re-export prefix so a round-trip doesn't stack `lectern-lectern-`.
+    let name = name.trim_start_matches("lectern-").trim().to_string();
+    if name.is_empty() {
+        anyhow::bail!("SKILL.md has no `name` in its frontmatter");
+    }
+    if description.is_empty() {
+        description = format!("Imported skill: {name}");
+    }
+    // Drop a leading `# Title` heading, then keep the instruction paragraphs as rules.
+    let body = body.trim();
+    let body = match body.lines().next() {
+        Some(first) if first.trim_start().starts_with('#') => {
+            body.lines().skip(1).collect::<Vec<_>>().join("\n")
+        }
+        _ => body.to_string(),
+    };
+    let rules: Vec<String> = body
+        .split("\n\n")
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    Ok(SkillBundle {
+        name,
+        description,
+        triggers,
+        rules,
+        steps: Vec::new(),
+        author: None,
+        version: 1,
+        docs: None,
+    })
+}
+
 fn render_skill_md(sk: &Skill) -> String {
     let triggers = if sk.triggers.is_empty() {
         "matching tasks".to_string()
@@ -2812,6 +2886,32 @@ mod tests {
             "unrelated file must not be recalled, got {hits:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_skill_md_from_open_standard() {
+        let md = "---\nname: pdf-tools\ndescription: Work with PDF files\ntriggers: pdf, extract\n---\n\n# PDF Tools\n\nUse pdfplumber to read text.\n\nAlways validate the file exists first.\n";
+        let b = parse_skill_md(md).unwrap();
+        assert_eq!(b.name, "pdf-tools");
+        assert_eq!(b.description, "Work with PDF files");
+        assert_eq!(b.triggers, vec!["pdf".to_string(), "extract".to_string()]);
+        assert_eq!(
+            b.rules.len(),
+            2,
+            "two body paragraphs → two rules: {:?}",
+            b.rules
+        );
+        assert!(b.rules[0].contains("pdfplumber"));
+
+        // Lectern's own re-exported name prefix is stripped (no lectern-lectern-).
+        let round = parse_skill_md(
+            "---\nname: lectern-deploy\ndescription: d\n---\n\n# Deploy\n\nship it\n",
+        )
+        .unwrap();
+        assert_eq!(round.name, "deploy");
+
+        // No frontmatter name is a hard error (can't import an unnamed skill).
+        assert!(parse_skill_md("just some text, no frontmatter").is_err());
     }
 
     #[test]
