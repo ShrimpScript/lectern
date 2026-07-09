@@ -15,6 +15,21 @@ type UsageData = {
 
 const fmt = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
+// How a backend is billed. Cost volatility is the top developer pain in 2026, and
+// Lectern's answer is that most usage runs on a flat subscription, a local model, or
+// free tiers — no per-token bill. We label how each backend bills rather than inventing
+// a dollar figure (Lectern holds no billing keys and usage is aggregated per backend,
+// not per model, so a real per-token cost can't be computed honestly).
+function billingModel(backend: string): string {
+  const b = backend.toLowerCase();
+  if (b.includes("claude")) return "on your Claude plan";
+  if (b.includes("antigravity")) return "on your Google account";
+  if (b.includes("ollama")) return "local · $0";
+  if (b === "mock") return "$0";
+  if (b.includes("opencode") || b.includes("openrouter")) return "free / pay-per-use";
+  return "";
+}
+
 export default function Usage() {
   const [d, setD] = useState<UsageData | null>(null);
   const [view, setView] = useState<"grid" | "bars">("grid");
@@ -77,6 +92,9 @@ export default function Usage() {
                     <div key={b.backend} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", borderTop: i ? "1px solid var(--bd2)" : "none" }}>
                       <span style={{ width: 26, height: 26, border: "1px solid var(--bd2)", borderRadius: 7, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--fg)", flexShrink: 0 }}>{providerIcon(b.backend, 14) ?? <span className="mono" style={{ fontSize: 10 }}>{b.backend.slice(0, 2)}</span>}</span>
                       <span style={{ width: 110, fontSize: 13, fontWeight: 600, flexShrink: 0, textTransform: "capitalize" }}>{b.backend.replace("-", " ")}</span>
+                      {billingModel(b.backend) && (
+                        <span style={{ fontSize: 10.5, color: "var(--fg3)", border: "1px solid var(--bd2)", borderRadius: 999, padding: "1.5px 8px", flexShrink: 0, whiteSpace: "nowrap" }}>{billingModel(b.backend)}</span>
+                      )}
                       <div style={{ flex: 1, height: 7, borderRadius: 999, background: "var(--panel2)", overflow: "hidden" }}>
                         <div style={{ width: `${Math.max(2, share * 100)}%`, height: "100%", borderRadius: 999, background: "var(--fg)", opacity: 0.8 }} />
                       </div>
@@ -85,6 +103,9 @@ export default function Usage() {
                   );
                 })}
                 {d.backends.length === 0 && <div style={{ padding: "12px 14px", fontSize: 12, color: "var(--fg3)" }}>No runs yet.</div>}
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--fg3)", marginTop: 8, lineHeight: 1.5 }}>
+                Token counts are for insight, not a bill. Subscription and local backends have no per-token cost; only pay-per-use models (some via OpenCode/OpenRouter) are metered — Lectern stores no billing keys, so it can&apos;t itemize those. Fewer tokens per task still means lower cost and latency, which is why recall stays lean.
               </div>
             </Section>
             <Section label="Recent sessions">
