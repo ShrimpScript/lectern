@@ -2232,6 +2232,28 @@ async fn open_url(url: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// A suggested Conventional Commit for a set of changes (the same heuristic the CLI prints
+/// after a run). Kept in the engine so the CLI and desktop can't drift.
+#[derive(serde::Deserialize)]
+struct ChangeIn {
+    path: String,
+    added: u32,
+    removed: u32,
+}
+#[tauri::command]
+fn suggest_commit(changes: Vec<ChangeIn>) -> String {
+    let pcs: Vec<lectern_engine::backend::ProposedChange> = changes
+        .into_iter()
+        .map(|c| lectern_engine::backend::ProposedChange {
+            path: c.path,
+            added: c.added,
+            removed: c.removed,
+            new_content: None,
+        })
+        .collect();
+    lectern_engine::backend::suggest_commit_message(&pcs)
+}
+
 /// The OS family, for showing the right install command in the setup helper.
 #[tauri::command]
 fn os_platform() -> &'static str {
@@ -2925,6 +2947,7 @@ fn main() {
             save_theme_file,
             open_config_file,
             os_platform,
+            suggest_commit,
             run_setup,
             set_user_profile,
             doctor,

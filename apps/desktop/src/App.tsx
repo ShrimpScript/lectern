@@ -1223,6 +1223,14 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
   const isClaude = session.backend === "claude-code" || (session.backend === "auto" && claudeAvailable);
   const empty = session.events.length === 0;
   const changes = session.events.filter((e) => e.type === "file_edit") as Extract<Ev, { type: "file_edit" }>[];
+  // Suggested Conventional Commit for the run's changes (same engine heuristic as the CLI).
+  const [commitMsg, setCommitMsg] = useState("");
+  const [commitCopied, setCommitCopied] = useState(false);
+  useEffect(() => {
+    if (session.busy || changes.length === 0) { setCommitMsg(""); return; }
+    invoke<string>("suggest_commit", { changes: changes.map((c) => ({ path: c.path, added: c.added, removed: c.removed })) })
+      .then(setCommitMsg).catch(() => setCommitMsg(""));
+  }, [session.busy, changes.length]);
   const [termOpen, setTermOpen] = useState(false);
   const [termEver, setTermEver] = useState(false);
   const clean = (session.view ?? (cleanDefault ? "clean" : "verbose")) === "clean";
@@ -1482,6 +1490,15 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
                         <span style={{ flexShrink: 0, opacity: 0.85 }}><span style={{ color: ACCENT }}>+{c.added}</span> <span style={{ color: DANGER }}>−{c.removed}</span></span>
                       </div>
                     ))}
+                    {commitMsg && (
+                      <div style={{ marginTop: 4, border: "1px solid var(--bd2)", borderRadius: 7, padding: "6px 8px", display: "flex", alignItems: "center", gap: 8, background: "var(--panel2)" }}>
+                        <span className="mono" title={commitMsg} style={{ flex: 1, minWidth: 0, fontSize: 11, color: "var(--fg2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{commitMsg}</span>
+                        <button title="Copy suggested commit message" onClick={() => { navigator.clipboard?.writeText(commitMsg).then(() => { setCommitCopied(true); setTimeout(() => setCommitCopied(false), 1400); }).catch(() => {}); }}
+                          style={{ flexShrink: 0, border: "none", background: "transparent", color: commitCopied ? ACCENT : "var(--fg3)", cursor: "pointer", fontSize: 10.5, fontWeight: 600, fontFamily: "inherit", padding: 0 }}>
+                          {commitCopied ? "copied ✓" : "copy commit"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
                 <div className="mono" style={{ fontSize: 12, color: "var(--fg2)", display: "flex", flexDirection: "column", gap: 4 }}>
