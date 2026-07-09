@@ -300,6 +300,9 @@ export function App() {
   const [activeId, setActiveId] = useState<string>(sessions[0].id);
   const active = sessions.find((s) => s.id === activeId) ?? sessions[0];
   const claudeAvailable = doctor?.claude_available ?? false;
+  // Any real provider (not the mock) — the setup nudge should only show when the
+  // user genuinely has nothing connected, not merely when Claude Code is absent.
+  const anyBackend = backends.some((b) => b.available && b.id !== "mock");
   const models = useMemo(() => modelOptions(claudeModels, ocModels, orModels, olModels), [claudeModels, ocModels, orModels, olModels]);
   const loaded = useRef(false);
   const homeRef = useRef(""); // user's home dir (for the agent's default workspace)
@@ -630,7 +633,7 @@ export function App() {
   return (
     <div style={{ ...themeStyle(effTheme), ...(customVars as React.CSSProperties), colorScheme: effTheme === "dark" ? "dark" : "light", height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--fg)", overflow: "hidden" }}>
       {!prefs.onboarded && <Onboarding backends={backends} hasFolder={!!active?.path?.trim()} onPickFolder={async () => { const p = await invoke<string | null>("pick_folder"); if (p) update(active.id, (s) => ({ ...s, path: p })); }} onRecheck={recheck} onDone={() => savePrefs({ onboarded: true })} />}
-      {doctor && !doctor.claude_available && prefs.onboarded && <SetupBanner />}
+      {doctor && !anyBackend && prefs.onboarded && <SetupBanner onOpenSettings={() => setScreen("settings")} />}
       {(recording || recordSteps) && <RecordBar recording={recording} steps={recordSteps} onStop={stopRecording} onSave={saveRecording} onDiscard={() => setRecordSteps(null)} />}
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         {navOpen && (
@@ -677,10 +680,11 @@ export function App() {
   );
 }
 
-function SetupBanner() {
+function SetupBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   return (
-    <div className="mono" style={{ background: "var(--panel)", borderBottom: "1px solid var(--bd)", color: "var(--fg2)", fontSize: 12, lineHeight: 1.5, padding: "9px 16px", textAlign: "center", flexShrink: 0 }}>
-      <span style={{ color: WARN }}>●</span> Claude Code not detected — install with <b style={{ color: "var(--fg)" }}>npm i -g @anthropic-ai/claude-code</b>, then run <b style={{ color: "var(--fg)" }}>claude</b> once to log in. <span style={{ color: "var(--fg3)" }}>(Mock backend works meanwhile.)</span>
+    <div className="mono" style={{ background: "var(--panel)", borderBottom: "1px solid var(--bd)", color: "var(--fg2)", fontSize: 12, lineHeight: 1.5, padding: "9px 16px", textAlign: "center", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
+      <span><span style={{ color: WARN }}>●</span> No agent provider connected. OpenCode&apos;s free models need no key, or connect Claude Code / Antigravity.</span>
+      <button onClick={onOpenSettings} style={{ height: 24, padding: "0 11px", fontSize: 11.5, fontWeight: 700, color: "var(--btnfg)", background: "var(--btn)", border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Set one up →</button>
     </div>
   );
 }
