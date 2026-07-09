@@ -99,23 +99,32 @@ pub fn recall_symbols(root: &Path, prompt: &str, limit: usize) -> Vec<String> {
     if toks.is_empty() {
         return vec![];
     }
-    let mut hits: Vec<String> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
+    // Centrality (link degree) per node — the same signal `summary()` uses to find
+    // god-nodes. A symbol many others reference is more likely the one you mean, so we
+    // rank matches by it instead of returning whatever order the graph happened to list.
+    let mut deg: HashMap<&str, usize> = HashMap::new();
+    for l in &g.links {
+        *deg.entry(l.source.as_str()).or_default() += 1;
+        *deg.entry(l.target.as_str()).or_default() += 1;
+    }
+    let mut matched: Vec<(usize, &Node)> = Vec::new();
+    let mut seen: HashSet<&str> = HashSet::new();
     for n in &g.nodes {
         let nl = n.label.to_lowercase();
-        if toks.iter().any(|t| nl.contains(t)) && seen.insert(n.label.clone()) {
-            let loc = n.source_file.clone().unwrap_or_default();
-            hits.push(if loc.is_empty() {
-                n.label.clone()
-            } else {
-                format!("{} ({loc})", n.label)
-            });
-            if hits.len() >= limit {
-                break;
-            }
+        if toks.iter().any(|t| nl.contains(t)) && seen.insert(n.label.as_str()) {
+            matched.push((deg.get(n.id.as_str()).copied().unwrap_or(0), n));
         }
     }
-    hits
+    // Most central first; stable tie-break by label so results are deterministic.
+    matched.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.label.cmp(&b.1.label)));
+    matched
+        .into_iter()
+        .take(limit)
+        .map(|(_, n)| match n.source_file.as_deref() {
+            Some(loc) if !loc.is_empty() => format!("{} ({loc})", n.label),
+            _ => n.label.clone(),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -162,6 +171,12 @@ mod tests {
         let hits = recall_symbols(&dir, "fix the config parsing", 4);
         assert!(hits.iter().any(|h| h == "parse_config (src/config.rs)"));
         assert!(hits.iter().any(|h| h == "ConfigError"));
+        // Centrality ranking: parse_config (degree 2) outranks ConfigError (degree 1).
+        assert_eq!(
+            hits.first().map(String::as_str),
+            Some("parse_config (src/config.rs)"),
+            "the more-connected matching symbol should come first"
+        );
         // Only short tokens (< 4 chars) → no matches.
         assert!(recall_symbols(&dir, "a b c go", 4).is_empty());
 
