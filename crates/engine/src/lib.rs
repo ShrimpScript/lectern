@@ -170,6 +170,27 @@ fn est_tokens(s: &str) -> u64 {
     (s.len() as u64).div_ceil(4)
 }
 
+/// A short "what this file is about" header prepended to content before embedding, so
+/// the vector reflects the file's *purpose* — its path plus its title/first meaningful
+/// line — not only its raw token soup. This is contextual retrieval: it lets a query
+/// about a file's topic ("the scheduler") match `src/engine/scheduler.rs` even when the
+/// body never repeats that word, which measurably lowers recall misses.
+fn contextual_prefix(rel: &str, content: &str) -> String {
+    // Path components carry strong topic signal; split them into words to embed.
+    let path_words = rel.replace(['/', '_', '-', '.'], " ");
+    // First meaningful line — a markdown title, a doc comment, or the first definition
+    // for most code — skipping empties and lines that are just punctuation/brackets.
+    let title: String = content
+        .lines()
+        .map(str::trim)
+        .find(|l| l.len() >= 3 && !l.starts_with(['{', '}', '[', ']', '(', ')', ';', ',']))
+        .unwrap_or("")
+        .chars()
+        .take(120)
+        .collect();
+    format!("{path_words}\n{title}")
+}
+
 /// The slice of a recalled file worth putting in context — the `max_lines` window
 /// with the most query-token overlap, not the whole file. A 2000-line file with one
 /// relevant function costs a handful of lines here instead of the entire thing; this
@@ -374,8 +395,11 @@ impl Engine {
             bytes += content.len() as u64;
             files += 1;
             self.store.index_file(&ws.id, rel, content)?;
-            // vector embedding for semantic recall
-            let v = self.embedder.embed(content);
+            // vector embedding for semantic recall, over a contextual header + content
+            // so the vector captures what the file is about, not just its raw tokens.
+            let v = self
+                .embedder
+                .embed(&format!("{}\n{content}", contextual_prefix(rel, content)));
             self.store
                 .index_vector(&ws.id, rel, v.len() as i64, &embed::to_bytes(&v))?;
         }
@@ -2717,6 +2741,30 @@ mod tests {
         // Nothing matches → falls back to the head, still bounded.
         let (head, t2) = relevant_snippet(&content, "zzzznomatch", 24);
         assert!(t2 && head.lines().count() <= 25);
+    }
+
+    #[test]
+    fn contextual_recall_matches_file_purpose_from_path() {
+        // scheduler.py's BODY never contains "schedul" — only its path does. Contextual
+        // retrieval folds the path into the embedding, so a query about the file's
+        // purpose still surfaces it; an unrelated file stays out.
+        let eng = Engine::with_store(crate::store::Store::open_in_memory().unwrap());
+        let dir = tmp_workspace(&[
+            ("src/scheduler.py", "def run(items):\n    out = []\n    for x in items:\n        out.append(process(x))\n    return out"),
+            ("notes/groceries.txt", "milk\neggs\nbread\ncoffee\napples"),
+        ]);
+        let ws = eng.open_workspace(&dir).unwrap();
+        eng.index_workspace(&ws).unwrap();
+        let hits = eng.recall(&ws, "how does the scheduler work", 4);
+        assert!(
+            hits.iter().any(|h| h.contains("scheduler.py")),
+            "path-context should surface scheduler.py even though its body never says 'scheduler', got {hits:?}"
+        );
+        assert!(
+            !hits.iter().any(|h| h.contains("groceries")),
+            "unrelated file must not be recalled, got {hits:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
