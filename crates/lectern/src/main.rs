@@ -906,6 +906,11 @@ fn cmd_run(
                 c.path, c.added, c.removed
             );
         }
+        println!(
+            "{} {}",
+            dim("suggested commit:"),
+            lectern_engine::backend::suggest_commit_message(&result.changes)
+        );
         if result.applied {
             println!("{GREEN}✓ applied to disk{RESET}");
         } else {

@@ -24,6 +24,66 @@ pub struct ProposedChange {
     pub new_content: Option<String>,
 }
 
+/// A starting-point Conventional Commit line derived purely from a run's changes — the
+/// type and scope (the mechanical part) inferred from paths and line counts, with a subject
+/// listing the touched files. It's a scaffold to edit, not a claim to know intent, and costs
+/// no tokens. (A model-written subject is a natural later refinement.)
+pub fn suggest_commit_message(changes: &[ProposedChange]) -> String {
+    if changes.is_empty() {
+        return "chore: no changes".to_string();
+    }
+    let is_doc = |p: &str| p.ends_with(".md") || p.contains("/docs/") || p.starts_with("docs/");
+    let is_test = |p: &str| {
+        p.contains("/tests/")
+            || p.starts_with("tests/")
+            || p.contains("test_")
+            || p.contains("_test.")
+            || p.contains(".test.")
+            || p.contains(".spec.")
+    };
+    let is_ci = |p: &str| p.contains(".github/") || p.starts_with("ci/");
+    let ty = if changes.iter().all(|c| is_doc(&c.path)) {
+        "docs"
+    } else if changes.iter().all(|c| is_test(&c.path)) {
+        "test"
+    } else if changes.iter().all(|c| is_ci(&c.path)) {
+        "ci"
+    } else {
+        let (add, rem) = changes
+            .iter()
+            .fold((0u32, 0u32), |a, c| (a.0 + c.added, a.1 + c.removed));
+        // Mostly-additions read as a feature; edits/deletions read as a fix.
+        if add > rem.saturating_mul(2) {
+            "feat"
+        } else {
+            "fix"
+        }
+    };
+    // Scope: the shared leading path segment for code changes (feat/fix), unless it's a
+    // generic wrapper dir. docs/test/ci already name their category, so they skip it.
+    let first_seg = |p: &str| p.split('/').next().unwrap_or("").to_string();
+    let generic = |s: &str| matches!(s, "" | "src" | "crates" | "apps" | "lib" | ".");
+    let scope = if matches!(ty, "feat" | "fix") {
+        let s0 = first_seg(&changes[0].path);
+        (!generic(&s0) && changes.iter().all(|c| first_seg(&c.path) == s0)).then_some(s0)
+    } else {
+        None
+    };
+    let names: Vec<String> = changes
+        .iter()
+        .map(|c| c.path.rsplit('/').next().unwrap_or(&c.path).to_string())
+        .collect();
+    let subject = match names.len() {
+        1 => format!("update {}", names[0]),
+        2..=3 => format!("update {}", names.join(", ")),
+        n => format!("update {} and {} more", names[..2].join(", "), n - 2),
+    };
+    match scope {
+        Some(s) => format!("{ty}({s}): {subject}"),
+        None => format!("{ty}: {subject}"),
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Usage {
     pub input_tokens: u64,
@@ -1687,6 +1747,27 @@ pub fn resolve_claude(binary: &str) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn suggest_commit_message_infers_type_scope_subject() {
+        let pc = |path: &str, added: u32, removed: u32| ProposedChange {
+            path: path.into(),
+            added,
+            removed,
+            new_content: None,
+        };
+        assert!(suggest_commit_message(&[pc("docs/guide.md", 10, 0)]).starts_with("docs:"));
+        assert!(
+            suggest_commit_message(&[pc("crates/x/tests/foo_test.rs", 5, 0)]).starts_with("test:")
+        );
+        // Mostly additions in a shared, non-generic dir → feat with that scope.
+        let m = suggest_commit_message(&[pc("engine/a.rs", 40, 2), pc("engine/b.rs", 20, 1)]);
+        assert!(m.starts_with("feat(engine):"), "got {m}");
+        assert!(m.contains("a.rs") && m.contains("b.rs"));
+        // Net deletions/edits → fix.
+        assert!(suggest_commit_message(&[pc("src/x.rs", 3, 30)]).starts_with("fix"));
+        assert_eq!(suggest_commit_message(&[]), "chore: no changes");
+    }
 
     #[test]
     fn compose_prompt_injects_agents_md_for_non_claude() {
