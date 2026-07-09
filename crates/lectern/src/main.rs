@@ -1516,72 +1516,51 @@ fn cmd_doctor() -> Result<()> {
 }
 
 fn cmd_daemon_status() -> Result<()> {
-    let oc = OpenCodeBackend::new();
-    if oc.available() {
-        println!(
-            "  {GREEN}✓{RESET} OpenCode {}",
-            dim(&format!(
-                "({} · OpenRouter + many providers; free models built in)",
-                oc.version().unwrap_or_else(|| "installed".into())
-            ))
-        );
-    } else {
-        println!(
-            "  {DIM}○{RESET} OpenCode not found {}",
-            dim("— install: curl -fsSL https://opencode.ai/install | bash (optional; free models, no key)")
-        );
-    }
+    println!("{}", bold("Lectern daemon"));
 
-    let or_models = lectern_engine::backend::discover_openrouter_models();
-    if !or_models.is_empty() {
-        let free_n = or_models
-            .iter()
-            .filter(|(id, _)| id.ends_with(":free"))
-            .count();
-        println!(
-            "  {GREEN}✓{RESET} OpenRouter {}",
-            dim(&format!(
-                "(via opencode · {} models, {free_n} free)",
-                or_models.len()
-            ))
-        );
-    } else if OpenCodeBackend::new().available() {
-        println!(
-            "  {DIM}·{RESET} OpenRouter {}",
-            dim("not connected — `opencode auth login` → OpenRouter (has free models)")
-        );
-    }
-
-    let ollama_models = lectern_engine::backend::discover_ollama_models();
-    if !ollama_models.is_empty() {
-        println!(
-            "  {GREEN}✓{RESET} Ollama {}",
-            dim(&format!("(local · {} models)", ollama_models.len()))
-        );
-    } else {
-        println!(
-            "  {DIM}·{RESET} Ollama {}",
-            dim("not installed — curl -fsSL https://ollama.com/install.sh | sh, then `ollama pull llama3`")
-        );
-    }
-
+    // The point of this command: is the scheduler daemon alive?
     let sock = lecternd_socket_path();
     if daemon_alive(&sock) {
         println!(
-            "{GREEN}●{RESET} lecternd running at {}",
-            dim(&sock.to_string_lossy())
+            "  {GREEN}●{RESET} lecternd running {}",
+            dim(&format!("at {}", sock.to_string_lossy()))
         );
     } else if sock.exists() {
         println!(
-            "{DIM}○{RESET} lecternd socket present but unresponsive {}",
+            "  {DIM}○{RESET} lecternd socket present but unresponsive {}",
             dim("(stale — restart lecternd)")
         );
     } else {
         println!(
-            "{DIM}○{RESET} lecternd not running — the engine currently runs embedded in the CLI."
+            "  {DIM}○{RESET} lecternd not running {}",
+            dim("(the engine runs embedded in the CLI; start the daemon with `lecternd`)")
         );
-        println!("  {}", dim("start it with: lecternd"));
     }
+
+    // What the daemon is on the hook for: queued schedules.
+    if let Ok(eng) = Engine::open_default() {
+        if let Ok(rows) = eng.list_all_schedules() {
+            let now = lectern_engine::now_ts();
+            let pending: Vec<&_> = rows.iter().filter(|r| r.6 == "pending").collect();
+            if pending.is_empty() {
+                println!("  {}", dim("no schedules queued"));
+            } else {
+                let due = pending.iter().filter(|r| r.4 <= now).count();
+                let next_in = pending.iter().map(|r| r.4).min().unwrap_or(now) - now;
+                let when = if due > 0 {
+                    format!("{due} due now")
+                } else {
+                    format!("next in ~{}s", next_in.max(0))
+                };
+                println!(
+                    "  {}",
+                    dim(&format!("{} schedule(s) pending · {when}", pending.len()))
+                );
+            }
+        }
+    }
+
+    println!("  {}", dim("provider/backend status → `lectern doctor`"));
     Ok(())
 }
 
