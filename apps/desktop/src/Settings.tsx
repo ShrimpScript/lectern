@@ -59,7 +59,7 @@ const PROVIDER_SETUP: Record<string, SetupSpec> = {
   ollama: {
     cmd: { linux: "curl -fsSL https://ollama.com/install.sh | sh", macos: "brew install ollama", windows: "Download the Windows installer" },
     oneClick: true,
-    auth: "then `ollama pull llama3.2` (or any model) — Lectern auto-detects what you have.",
+    auth: "then pull a code model — `ollama pull qwen3-coder` — Lectern auto-detects it (the picker flags code-strong models).",
     guide: "https://getlectern.vercel.app/docs/integrations",
     external: "https://ollama.com/",
   },

@@ -785,7 +785,7 @@ fn pick_backend(name: &str, flags: &RunFlags) -> Result<Box<dyn Backend>> {
         "ollama" => {
             let models = lectern_engine::backend::discover_ollama_models();
             if models.is_empty() {
-                anyhow::bail!("Ollama isn't running — install from ollama.com, start it, then `ollama pull llama3`.");
+                anyhow::bail!("Ollama isn't running — install from ollama.com, start it, then pull a code model (e.g. `ollama pull qwen3-coder`).");
             }
             if !OpenCodeBackend::new().available() {
                 anyhow::bail!(
@@ -1387,6 +1387,53 @@ fn which(bin: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Total RAM in GB parsed from `/proc/meminfo` contents. Pure, so it's testable.
+fn parse_meminfo_gb(contents: &str) -> Option<u64> {
+    for line in contents.lines() {
+        if let Some(rest) = line.strip_prefix("MemTotal:") {
+            let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
+            return Some((kb / 1_048_576).max(1)); // KiB → GiB
+        }
+    }
+    None
+}
+
+/// Best-effort total RAM (Linux). `None` elsewhere, which just means no size hint.
+fn detect_ram_gb() -> Option<u64> {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|c| parse_meminfo_gb(&c))
+}
+
+/// How to get a *coding* model into Ollama, sized to the machine — Lectern is a coding
+/// tool, so it recommends a code-tuned model (not a general chat model), and uses the
+/// detected RAM to pick a size that will actually run.
+fn ollama_setup_hint() -> String {
+    let install = "curl -fsSL https://ollama.com/install.sh | sh";
+    match detect_ram_gb() {
+        Some(gb) if gb >= 24 => format!("install: {install}, then `ollama pull qwen3-coder:30b` (your ~{gb} GB runs a large code model)"),
+        Some(gb) if gb >= 12 => format!("install: {install}, then `ollama pull qwen2.5-coder:14b` (sized to your ~{gb} GB)"),
+        Some(gb) => format!("install: {install}, then `ollama pull qwen2.5-coder:7b` (a small code model for your ~{gb} GB)"),
+        None => format!("install: {install}, then a code model — `ollama pull qwen3-coder`"),
+    }
+}
+
+#[cfg(test)]
+mod ram_tests {
+    use super::*;
+    #[test]
+    fn parse_meminfo_reads_total_gb() {
+        // A real /proc/meminfo first line; 16183928 KiB ≈ 15 GiB.
+        let sample = "MemTotal:       16183928 kB\nMemFree:        1000000 kB\n";
+        assert_eq!(parse_meminfo_gb(sample), Some(15));
+        assert_eq!(parse_meminfo_gb("no meminfo here"), None);
+        // The hint always recommends a code model, never a general chat one.
+        let hint = ollama_setup_hint();
+        assert!(hint.contains("coder"));
+        assert!(!hint.contains("llama3"));
+    }
+}
+
 fn cmd_doctor() -> Result<()> {
     println!("{}", bold("Lectern doctor"));
 
@@ -1485,10 +1532,8 @@ fn cmd_doctor() -> Result<()> {
             dim(&format!("(local · {} models)", ollama_models.len()))
         );
     } else {
-        println!(
-            "  {DIM}·{RESET} Ollama {}",
-            dim("not installed — curl -fsSL https://ollama.com/install.sh | sh, then `ollama pull llama3`")
-        );
+        println!("  {DIM}·{RESET} Ollama {}", dim("not installed"));
+        println!("    {}", dim(&ollama_setup_hint()));
     }
 
     let sock = lecternd_socket_path();
