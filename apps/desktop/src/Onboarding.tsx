@@ -172,8 +172,8 @@ export function Onboarding({ backends, hasFolder, onPickFolder, onRecheck, onDon
         models in Lectern. Your logins and keys stay on this machine.
       </div>
       {row(<ClaudeIcon size={15} />, claude, "Claude Code", claude ? "Claude models are ready." : "Terminal: npm i -g @anthropic-ai/claude-code — then run claude once to log in.", claude ? undefined : ghost("Re-check", onRecheck))}
-      {row(<AntigravityIcon size={15} />, agy, "Antigravity", agy ? "Gemini models are ready." : "Optional — install Antigravity, run agy once to sign in.", agy ? undefined : ghost("Re-check", onRecheck))}
-      {row(OpenCodeGlyph, oc, "OpenCode", oc ? "OpenRouter + free models are ready." : "Optional — opencode.ai; its free models need no key at all.", oc ? undefined : ghost("Re-check", onRecheck))}
+      {row(<AntigravityIcon size={15} />, agy, "Antigravity", agy ? "Gemini models are ready." : "Optional — get Antigravity at antigravity.google, then run agy once.", agy ? undefined : ghost("Re-check", onRecheck))}
+      {row(OpenCodeGlyph, oc, "OpenCode", oc ? "OpenRouter + free models are ready." : "Optional — curl -fsSL https://opencode.ai/install | bash — free models, no key.", oc ? undefined : ghost("Re-check", onRecheck))}
     </div>,
     // ③ Project
     <div key="2" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
