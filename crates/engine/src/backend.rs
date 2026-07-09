@@ -52,10 +52,26 @@ pub struct TurnContext<'a> {
     pub apply: bool,
 }
 
-/// Prepend Lectern's trusted preamble — machine facts, recalled files, matched skills, and
-/// the untrusted-content note — to the task, then return the full prompt. Every backend
-/// composes context identically through here; `skills_read_from_disk` is true for backends
-/// (Claude Code) that read `.claude/skills/lectern-*`, which get an extra apply hint.
+/// The repo's own agent-instructions file — the AGENTS.md standard (or CLAUDE.md) — capped
+/// so it can't dominate the prompt. Native agents like Claude Code read these themselves;
+/// this surfaces them to backends that don't, so a project's conventions apply everywhere.
+fn project_instructions(root: &Path) -> Option<String> {
+    for name in ["AGENTS.md", "CLAUDE.md"] {
+        if let Ok(text) = std::fs::read_to_string(root.join(name)) {
+            let text = text.trim();
+            if !text.is_empty() {
+                return Some(text.chars().take(4000).collect());
+            }
+        }
+    }
+    None
+}
+
+/// Prepend Lectern's trusted preamble — machine facts, the repo's AGENTS.md, recalled files,
+/// matched skills, and the untrusted-content note — to the task, then return the full prompt.
+/// Every backend composes context identically through here; `skills_read_from_disk` is true
+/// for backends (Claude Code) that read `.claude/skills/lectern-*` AND AGENTS.md natively, so
+/// those bits are only added for the backends that don't.
 fn compose_prompt(ctx: &TurnContext, prompt: &str, skills_read_from_disk: bool) -> String {
     let mut pre = String::new();
     if let Some(sys) = ctx
@@ -67,6 +83,17 @@ fn compose_prompt(ctx: &TurnContext, prompt: &str, skills_read_from_disk: bool) 
         pre.push_str("[Lectern system] Known facts about this machine — assume these, don't re-probe unless needed:\n");
         pre.push_str(sys);
         pre.push_str("\n\n");
+    }
+    // A repo's AGENTS.md is its stated conventions. Claude Code reads it itself; give it to
+    // the other backends so they honor the project's rules too.
+    if !skills_read_from_disk {
+        if let Some(instr) = project_instructions(ctx.workspace_root) {
+            pre.push_str(
+                "[Project] This repo's own agent instructions (from AGENTS.md) — follow them:\n",
+            );
+            pre.push_str(&instr);
+            pre.push_str("\n\n");
+        }
     }
     if !ctx.recalls.is_empty() {
         pre.push_str(
@@ -1660,6 +1687,31 @@ pub fn resolve_claude(binary: &str) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn compose_prompt_injects_agents_md_for_non_claude() {
+        let dir = std::env::temp_dir().join(format!("lectern-agents-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("AGENTS.md"),
+            "# Conventions\nUse tabs, not spaces.\n",
+        )
+        .unwrap();
+        let ctx = TurnContext {
+            workspace_root: &dir,
+            recalls: vec![],
+            skills: vec![],
+            system: None,
+            apply: false,
+        };
+        // Non-Claude backends get the repo's AGENTS.md injected…
+        let out = compose_prompt(&ctx, "do the thing", false);
+        assert!(out.contains("[Project]") && out.contains("Use tabs, not spaces"));
+        // …but Claude Code reads AGENTS.md natively, so we don't duplicate it.
+        let claude = compose_prompt(&ctx, "do the thing", true);
+        assert!(!claude.contains("Use tabs, not spaces"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn compose_prompt_builds_the_trusted_preamble() {
