@@ -76,6 +76,7 @@ type Session = {
   files?: string[];
   attachedSkill?: string;
   attachedSkillGui?: boolean;
+  queued?: string; // a follow-up composed while a run was busy; promoted to the composer when it finishes
   mode?: "conduct" | "one-shot";
   view?: "clean" | "verbose"; // per-chat output view override (D1); unset = Settings default
   personalAgent?: boolean;
@@ -347,6 +348,16 @@ export function App() {
 
   // Persist the session list (debounced) once the initial restore is done.
   // Perf: 1.5s debounce (was 0.5 — every keystroke scheduled a 20-session
+  // When a run finishes, promote any follow-up queued during it into the composer so it's
+  // right there ready to send (deterministic — it never auto-sends on its own).
+  useEffect(() => {
+    for (const s of sessions) {
+      if (!s.busy && s.queued) {
+        update(s.id, (x) => ({ ...x, draft: x.draft.trim() ? `${x.queued}\n${x.draft}` : x.queued!, queued: undefined }));
+      }
+    }
+  }, [sessions]);
+
   // serialize) and never while a stream is running; the post-run state change
   // triggers the flush naturally.
   useEffect(() => {
@@ -475,6 +486,13 @@ export function App() {
 
   async function send(s: Session) {
     let prompt = s.draft.trim();
+    // Steer while it works: if a run is active, don't drop the message — queue the
+    // follow-up (concatenating multiple) and promote it to the composer when the run
+    // finishes. Slash commands still fall through to their handlers.
+    if (s.busy && prompt && !prompt.startsWith("/")) {
+      update(s.id, (x) => ({ ...x, queued: (x.queued ? x.queued + "\n" : "") + prompt, draft: "" }));
+      return;
+    }
     const imgs = s.images ?? [];
     const files = s.files ?? [];
     const skill = s.attachedSkill;
@@ -1867,6 +1885,15 @@ function Composer({ session, isClaude, personalAgent, skillsVersion, backends, m
           </div>
         )}
         <div className="composer-pill" style={{ border: "1px solid var(--bd)", borderRadius: 18, background: "var(--panel)", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 11 }}>
+          {session.queued && (
+            <div style={{ display: "flex" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8, maxWidth: "100%", background: "var(--hov)", border: "1px solid var(--bd)", color: "var(--fg2)", borderRadius: 8, padding: "5px 10px", fontSize: 12.5 }}>
+                <span style={{ color: "var(--fg3)", flexShrink: 0 }}>queued next ·</span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.queued}</span>
+                <button onClick={() => onPatch((s) => ({ ...s, queued: undefined }))} title="cancel queued" style={{ border: "none", background: "transparent", color: "var(--fg3)", cursor: "pointer", lineHeight: 1, padding: 0, display: "inline-flex", flexShrink: 0 }}><Icon name="x" size={13} /></button>
+              </span>
+            </div>
+          )}
           {session.attachedSkill && (
             <div style={{ display: "flex" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "var(--hov)", border: "1px solid var(--bd)", color: "var(--fg)", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 600 }}>
@@ -1910,7 +1937,7 @@ function Composer({ session, isClaude, personalAgent, skillsVersion, backends, m
             <div ref={mirrorRef} aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", color: "var(--fg)", fontSize: 14.5, lineHeight: "22px", padding: "1px 2px 0", fontFamily: "inherit", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{highlightDraft(session.draft)}{"\n"}</div>
             <textarea ref={taRef} value={session.draft} onChange={(e) => onPatch((s) => ({ ...s, draft: e.target.value }))}
               onKeyDown={onKey} onPaste={onPaste} onScroll={(e) => { if (mirrorRef.current) mirrorRef.current.scrollTop = e.currentTarget.scrollTop; }} rows={1}
-              placeholder={session.busy ? "running… press Esc or Stop to cancel" : recording ? "listening… click the mic to stop" : transcribing ? "transcribing…" : personalAgent ? "Ask the agent anything…" : session.mode === "conduct" ? "Conductor is on — describe the task to plan & orchestrate…" : session.mode === "one-shot" ? "One-shot is on — give a brief; it builds autonomously…" : "Describe a task, or try a skill  (/ for commands)"} disabled={session.busy}
+              placeholder={session.busy ? "running… queue a follow-up (Enter), or Esc/Stop to cancel" : recording ? "listening… click the mic to stop" : transcribing ? "transcribing…" : personalAgent ? "Ask the agent anything…" : session.mode === "conduct" ? "Conductor is on — describe the task to plan & orchestrate…" : session.mode === "one-shot" ? "One-shot is on — give a brief; it builds autonomously…" : "Describe a task, or try a skill  (/ for commands)"}
               style={{ display: "block", position: "relative", border: "none", outline: "none", resize: "none", background: "transparent", color: "transparent", caretColor: "var(--fg)", fontSize: 14.5, lineHeight: "22px", padding: "1px 2px 0", width: "100%", fontFamily: "inherit", minHeight: 24, maxHeight: 168, overflowY: "auto" }} />
           </div>
           {session.mode && !personalAgent && (
