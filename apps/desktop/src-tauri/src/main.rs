@@ -2841,7 +2841,7 @@ mod term_tests {
 
     #[test]
     fn ssh_hosts_skip_wildcards_and_dupes() {
-        let cfg = "Host prod-box\n  User zeke\nHost *.internal !bad staging prod-box\nHost dev\n";
+        let cfg = "Host prod-box\n  User deploy\nHost *.internal !bad staging prod-box\nHost dev\n";
         assert_eq!(ssh_config_hosts(cfg), vec!["prod-box".to_string(), "staging".into(), "dev".into()]);
     }
 }

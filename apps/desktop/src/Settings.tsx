@@ -76,8 +76,8 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 // Expandable per-provider setup: OS-aware command + one-click install (where vetted)
-// + copy + guide/official links. Zeke's "Both": run it here when it's safe, always
-// leave the copy-paste + guide as the fallback.
+// + copy + guide/official links. Run the install here when it's safe, and always
+// leave the copy-paste command + guide as the fallback.
 function ProviderSetup({ id, os, onRecheck }: { id: string; os: OS; onRecheck: () => void }) {
   const spec = PROVIDER_SETUP[id];
   const [busy, setBusy] = useState(false);

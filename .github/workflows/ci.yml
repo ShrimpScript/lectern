@@ -47,7 +47,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-      - name: Tauri system deps (hosted runners only — zeke-pc has them)
+      - name: Tauri system deps (hosted runners only; local dev machines already have them)
         if: runner.environment == 'github-hosted'
         run: |
           sudo apt-get update
