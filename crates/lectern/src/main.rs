@@ -1418,22 +1418,6 @@ fn ollama_setup_hint() -> String {
     }
 }
 
-#[cfg(test)]
-mod ram_tests {
-    use super::*;
-    #[test]
-    fn parse_meminfo_reads_total_gb() {
-        // A real /proc/meminfo first line; 16183928 KiB ≈ 15 GiB.
-        let sample = "MemTotal:       16183928 kB\nMemFree:        1000000 kB\n";
-        assert_eq!(parse_meminfo_gb(sample), Some(15));
-        assert_eq!(parse_meminfo_gb("no meminfo here"), None);
-        // The hint always recommends a code model, never a general chat one.
-        let hint = ollama_setup_hint();
-        assert!(hint.contains("coder"));
-        assert!(!hint.contains("llama3"));
-    }
-}
-
 fn cmd_doctor() -> Result<()> {
     println!("{}", bold("Lectern doctor"));
 
@@ -1711,5 +1695,21 @@ fn pad(s: &str, n: usize) -> String {
         s.to_string()
     } else {
         format!("{s}{}", " ".repeat(n - len))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn parse_meminfo_reads_total_gb() {
+        // A real /proc/meminfo first line; 16183928 KiB ≈ 15 GiB.
+        let sample = "MemTotal:       16183928 kB\nMemFree:        1000000 kB\n";
+        assert_eq!(parse_meminfo_gb(sample), Some(15));
+        assert_eq!(parse_meminfo_gb("no meminfo here"), None);
+        // The Ollama hint always recommends a code model, never a general chat one.
+        let hint = ollama_setup_hint();
+        assert!(hint.contains("coder"));
+        assert!(!hint.contains("llama3"));
     }
 }
