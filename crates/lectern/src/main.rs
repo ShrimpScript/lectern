@@ -1414,7 +1414,7 @@ fn cmd_doctor() -> Result<()> {
         );
         println!(
             "    {}",
-            dim("install the Antigravity CLI (agy), then run `agy` once to log in")
+            dim("install: get Antigravity from antigravity.google, then run `agy` once to log in")
         );
     }
 
@@ -1430,7 +1430,7 @@ fn cmd_doctor() -> Result<()> {
     } else {
         println!(
             "  {DIM}○{RESET} OpenCode not found {}",
-            dim("(optional — install from opencode.ai for OpenRouter & more)")
+            dim("— install: curl -fsSL https://opencode.ai/install | bash (optional; free models, no key)")
         );
     }
 
@@ -1463,7 +1463,7 @@ fn cmd_doctor() -> Result<()> {
     } else {
         println!(
             "  {DIM}·{RESET} Ollama {}",
-            dim("not running — ollama.com, then `ollama pull llama3`")
+            dim("not installed — curl -fsSL https://ollama.com/install.sh | sh, then `ollama pull llama3`")
         );
     }
 
@@ -1528,7 +1528,7 @@ fn cmd_daemon_status() -> Result<()> {
     } else {
         println!(
             "  {DIM}○{RESET} OpenCode not found {}",
-            dim("(optional — install from opencode.ai for OpenRouter & more)")
+            dim("— install: curl -fsSL https://opencode.ai/install | bash (optional; free models, no key)")
         );
     }
 
@@ -1561,7 +1561,7 @@ fn cmd_daemon_status() -> Result<()> {
     } else {
         println!(
             "  {DIM}·{RESET} Ollama {}",
-            dim("not running — ollama.com, then `ollama pull llama3`")
+            dim("not installed — curl -fsSL https://ollama.com/install.sh | sh, then `ollama pull llama3`")
         );
     }
 
