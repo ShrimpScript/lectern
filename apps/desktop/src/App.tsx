@@ -135,6 +135,7 @@ const SLASH: SlashCmd[] = [
   { cmd: "/one-shot", id: "one-shot", desc: "Autonomous build — toggle the mode (or /one-shot <brief> for one run)", ready: true },
   { cmd: "/conduct", id: "conduct", desc: "Conductor — toggle orchestration mode (or /conduct <task> for one run)", ready: true },
   { cmd: "/record", id: "record", desc: "Record a demonstration → reusable skill (toggle)", ready: true },
+  { cmd: "/brief", id: "brief", desc: "Draft a structured task brief (goal · acceptance · constraints · test)", ready: true },
   { cmd: "/help", id: "help", desc: "List available commands", ready: true },
   { cmd: "/skill", id: "skill", desc: "Attach a learned skill: /skill [name]", ready: true },
   { cmd: "/mcp", id: "mcp", desc: "Target an MCP server: /mcp [server]", ready: true },
@@ -144,12 +145,13 @@ const SLASH_HELP = [
   "- `/one-shot <brief>` — autonomous build: a short brief, Claude plans the full scope and builds a complete product (auto-applies, runs a while)",
   "- `/conduct <task>` — Conductor: plans the task, then hands each sub-task to the model that excels at it (Gemini Flash for fast work, Opus for reasoning, …); auto-applies",
   "- `/record` — capture your clicks/typing across the screen, then save it as a reusable skill (run `/record` again to stop)",
+  "- `/brief` — draft a structured task brief (goal · acceptance · constraints · test) to fill in and send",
+  "- `/skill [name]` — attach a learned skill (recorded ones replay; procedural ones guide)",
+  "- `/mcp [server]` — target a connected MCP server for the next message",
   "- `/clear` — clear this conversation",
   "- `/plan` — review changes before they're written",
   "- `/apply` — let Claude Code apply edits",
   "- `/help` — this list",
-  "",
-  "Coming soon: `/skill`, `/mcp`.",
 ].join("\n");
 
 // Expansive autonomous-build preamble for /one-shot (short brief → complete product).
@@ -623,6 +625,12 @@ export function App() {
           update(sid, (s) => ({ ...s, events: [...s.events, { type: "message", text: ["**MCP servers** (from Claude Code) — target one with `/mcp <server>`:", "", ...servers.map((x) => `- **${x.name}** — ${x.connected ? "✓ connected" : "✗ not connected"}`)].join("\n") }] }));
         }
       }).catch((e) => update(sid, (s) => ({ ...s, events: [...s.events, { type: "error", message: String(e) }] })));
+    }
+    else if (id === "brief") {
+      // A structured brief (goal / acceptance / constraints / test) reliably gets
+      // better results than a one-liner — scaffold it into the composer to fill in.
+      const tpl = "Goal: \nAcceptance criteria: \nConstraints: \nTest command: ";
+      update(active.id, (s) => ({ ...s, draft: tpl, events: [...s.events, { type: "message", text: "Drafted a task brief in the composer — fill in the goal, how you'll know it's done, any constraints, and the test command, then send. A structured brief steers the agent far better than a one-line ask." }] }));
     }
     else if (id === "record") {
       if (recording || recordSteps) stopRecording();
