@@ -1659,6 +1659,12 @@ const STATIC_CLAUDE: ModelOpt[] = [
   { id: "sonnet", label: "Claude Sonnet 4.6", backend: "claude-code", model: "sonnet", group: "Claude · Claude Code" },
   { id: "haiku", label: "Claude Haiku 4.5", backend: "claude-code", model: "haiku", group: "Claude · Claude Code" },
 ];
+// Local models the 2026 rankings call strong for coding — flagged in the picker so a
+// user choosing a local (Ollama) model lands on a capable one instead of a general chat
+// model. Matched as substrings of the model id.
+const CODING_MODEL_HINTS = ["qwen3-coder", "qwen2.5-coder", "qwen-coder", "devstral", "deepseek-coder", "deepseek-v", "codellama", "codestral", "starcoder", "glm", "gpt-oss"];
+const isStrongCoder = (id: string) => CODING_MODEL_HINTS.some((c) => id.toLowerCase().includes(c));
+
 function modelOptions(claude: ModelInfo[], opencode: ModelInfo[] = [], openrouter: ModelInfo[] = [], ollama: ModelInfo[] = []): ModelOpt[] {
   const claudeOpts: ModelOpt[] = claude.length
     ? claude.map((m) => ({ id: m.id, label: `Claude ${m.label}`, backend: "claude-code", model: m.id, group: "Claude · Claude Code" }))
@@ -1676,7 +1682,7 @@ function modelOptions(claude: ModelInfo[], opencode: ModelInfo[] = [], openroute
           { id: "opencode/nemotron-3-ultra-free", label: "Nemotron 3 Ultra (free)", backend: "opencode", model: "opencode/nemotron-3-ultra-free", group: "Free — no key needed" },
         ]),
     ...openrouter.map((m) => ({ id: m.id, label: `OpenRouter ${m.label}`, backend: "openrouter", model: m.id, group: m.id.endsWith(":free") ? "Free — no key needed" : "OpenRouter" })),
-    ...ollama.map((m) => ({ id: m.id, label: m.label, backend: "ollama", model: m.id, group: "Ollama · local" })),
+    ...ollama.map((m) => ({ id: m.id, label: isStrongCoder(m.id) ? `${m.label} · good for code` : m.label, backend: "ollama", model: m.id, group: "Ollama · local" })),
   ];
 }
 
