@@ -170,6 +170,36 @@ fn est_tokens(s: &str) -> u64 {
     (s.len() as u64).div_ceil(4)
 }
 
+/// How many times the same command must run before a run is flagged as possibly stuck.
+const STUCK_RUN_THRESHOLD: u32 = 3;
+
+/// Watches a run's terminal commands and flags when it looks stuck — the same command
+/// failing over and over, a common way an agent burns tokens in a loop. Warns once per
+/// command so the notice doesn't itself spam the transcript.
+#[derive(Default)]
+struct StuckDetector {
+    counts: HashMap<String, u32>,
+    warned: HashSet<String>,
+}
+impl StuckDetector {
+    /// Record a finished command; return a one-time warning if it's now repeated + failing.
+    fn observe(&mut self, command: &str, exit_code: i32) -> Option<String> {
+        let n = {
+            let c = self.counts.entry(command.to_string()).or_insert(0);
+            *c += 1;
+            *c
+        };
+        if n >= STUCK_RUN_THRESHOLD && exit_code != 0 && self.warned.insert(command.to_string()) {
+            let short: String = command.chars().take(60).collect();
+            Some(format!(
+                "this run looks stuck — `{short}` has run {n}× and keeps failing (exit {exit_code}); consider stopping it"
+            ))
+        } else {
+            None
+        }
+    }
+}
+
 /// A short "what this file is about" header prepended to content before embedding, so
 /// the vector reflects the file's *purpose* — its path plus its title/first meaningful
 /// line — not only its raw token soup. This is contextual retrieval: it lets a query
@@ -614,14 +644,31 @@ impl Engine {
         let sid = session_id.clone();
         let mut idx: i64 = 0;
         let limit_hit = std::cell::Cell::new(false);
+        let mut stuck = StuckDetector::default();
         let outcome = {
             let mut wrapper = |ev: AgentEvent| {
                 if matches!(ev, AgentEvent::LimitHit { .. }) {
                     limit_hit.set(true);
                 }
+                // Flag a run that keeps re-running the same failing command (a loop).
+                let warning = match &ev {
+                    AgentEvent::Terminal {
+                        command, exit_code, ..
+                    } => stuck.observe(command, *exit_code),
+                    _ => None,
+                };
                 let _ = store.append_event(&sid, idx, &ev, now_ts());
                 idx += 1;
                 sink(ev);
+                if let Some(summary) = warning {
+                    let w = AgentEvent::Thought {
+                        summary,
+                        recalls: vec![],
+                    };
+                    let _ = store.append_event(&sid, idx, &w, now_ts());
+                    idx += 1;
+                    sink(w);
+                }
             };
             // Surface real memory recall at the start of the turn (persisted + shown).
             if !recalls.is_empty() {
@@ -2765,6 +2812,30 @@ mod tests {
             "unrelated file must not be recalled, got {hits:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stuck_detector_warns_once_on_repeated_failure() {
+        let mut d = StuckDetector::default();
+        // A failing command warns only after it crosses the threshold, then stays quiet.
+        assert!(d.observe("cargo test", 1).is_none());
+        assert!(d.observe("cargo test", 1).is_none());
+        let w = d.observe("cargo test", 1);
+        assert!(w
+            .as_deref()
+            .is_some_and(|s| s.contains("stuck") && s.contains("cargo test")));
+        assert!(
+            d.observe("cargo test", 1).is_none(),
+            "warns once, then silent"
+        );
+        // A command that keeps succeeding never warns, however often it runs.
+        for _ in 0..6 {
+            assert!(d.observe("ls", 0).is_none());
+        }
+        // A different failing command is tracked independently.
+        d.observe("make", 2);
+        d.observe("make", 2);
+        assert!(d.observe("make", 2).is_some());
     }
 
     #[test]
