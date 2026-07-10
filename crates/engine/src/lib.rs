@@ -1411,6 +1411,19 @@ impl Engine {
         self.store.recent_sessions(&ws.id, limit)
     }
 
+    // ── Checkpoints (rewind) ─────────────────────────────────────────────────
+    /// The workspace's snapshots, newest first — every point a run can be rewound to.
+    /// Reads the shadow-git store directly (the authoritative, always-restorable set).
+    pub fn checkpoints(&self, ws: &Workspace) -> Result<Vec<crate::checkpoint::Checkpoint>> {
+        crate::checkpoint::list(&ws.root)
+    }
+
+    /// Rewind the workspace to checkpoint `id`. Captures a redo checkpoint first, then
+    /// restores; returns which paths changed and the redo id (to undo the rewind).
+    pub fn rewind(&self, ws: &Workspace, id: &str) -> Result<crate::checkpoint::Restore> {
+        crate::checkpoint::restore(&ws.root, id)
+    }
+
     // ── Skills v1 ────────────────────────────────────────────────────────────
     /// Record a reusable skill by distilling a session's event log (in-app
     /// `/record`). Defaults to the workspace's most recent session.
