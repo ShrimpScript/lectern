@@ -63,10 +63,22 @@ the change, so cutting a release never means reconstructing history.
      > latest.json
    ```
 
-   (Pass a notes file as a 4th argument to embed release notes.)
-8. **Create the GitHub Release** for the tag with the matching `CHANGELOG.md` section as the
-   body, and attach: the installers, the CLI tarball, `SHA256SUMS.txt`, the signed AppImage +
-   `.sig`, and `latest.json`. Because the app's updater endpoint is
+   To embed the release notes in the manifest, extract them from the changelog first and
+   pass the file as a 4th argument:
+
+   ```
+   scripts/changelog-section.py X.Y.Z > notes.md
+   scripts/make-latest-json.sh X.Y.Z <appimage> <sig> notes.md > latest.json
+   ```
+8. **Create the GitHub Release** for the tag, using that same changelog section as the body:
+
+   ```
+   scripts/changelog-section.py X.Y.Z > notes.md   # exits non-zero if the version is missing
+   # then create the release with notes.md as the body (via the API or gh)
+   ```
+
+   Attach: the installers, the CLI tarball, `SHA256SUMS.txt`, the signed AppImage + `.sig`,
+   and `latest.json`. Because the app's updater endpoint is
    `releases/latest/download/latest.json`, publishing the release makes installed apps
    discover the update automatically.
 9. **Verify auto-update.** An installed older AppImage should detect the new version, show
