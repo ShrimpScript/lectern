@@ -593,6 +593,38 @@ impl Engine {
         }
     }
 
+    /// Snapshot the workspace before a run writes to it, so the user can rewind this turn.
+    /// Skipped for the home/default workspace (too big and personal). Records the snapshot
+    /// and emits a [`AgentEvent::Checkpoint`] through `sink`. Best-effort: a snapshot
+    /// failure is logged, never fatal — a run must never be blocked by checkpointing.
+    fn checkpoint_before_run(
+        &self,
+        ws_root: &Path,
+        ws_id: &str,
+        session_id: &str,
+        label: &str,
+        is_home: bool,
+        sink: &mut dyn FnMut(AgentEvent),
+    ) {
+        if is_home {
+            return;
+        }
+        match crate::checkpoint::snapshot(ws_root, label) {
+            Ok(Some(id)) => {
+                let _ = self
+                    .store
+                    .record_checkpoint(session_id, ws_id, &id, label, now_ts());
+                sink(AgentEvent::Checkpoint {
+                    id,
+                    label: label.to_string(),
+                });
+            }
+            // Nothing changed since the last checkpoint — it already covers this state.
+            Ok(None) => {}
+            Err(e) => crate::diag::log("checkpoint", &format!("snapshot skipped: {e}")),
+        }
+    }
+
     /// Run one turn against `backend`, streaming normalized events to `sink` while
     /// persisting them. Proposed edits are written to disk only when `apply` is true
     /// (the Apply gate).
@@ -694,6 +726,19 @@ impl Engine {
                     sink(w);
                 }
             };
+            // Snapshot the workspace before the agent writes, so this turn can be rewound.
+            // In-place applied runs only — worktree runs are already isolated on a branch.
+            if opts.apply && worktree.is_none() {
+                let label = truncate(&session_title(prompt), 80);
+                self.checkpoint_before_run(
+                    &work_root,
+                    &ws.id,
+                    &session_id,
+                    &label,
+                    is_home,
+                    &mut wrapper,
+                );
+            }
             // Surface real memory recall at the start of the turn (persisted + shown).
             if !recalls.is_empty() {
                 wrapper(AgentEvent::Thought {
@@ -835,6 +880,12 @@ impl Engine {
         let is_home = std::fs::canonicalize(home_dir())
             .ok()
             .is_some_and(|h| h == ws.root);
+        // Snapshot the workspace before the Conductor writes anything, so the whole
+        // multi-step run can be rewound as one checkpoint (covers the direct + planned paths).
+        if apply {
+            let label = truncate(&session_title(prompt), 80);
+            self.checkpoint_before_run(&ws.root, &ws.id, &session_id, &label, is_home, sink);
+        }
         if !is_home && index_is_stale(&ws.id) {
             let _ = self.index_workspace(ws);
             mark_indexed(&ws.id);
@@ -3185,6 +3236,63 @@ mod tests {
             .unwrap();
         assert!(engine.store.claim_schedule(&id).unwrap());
         assert!(!engine.store.claim_schedule(&id).unwrap());
+    }
+
+    #[test]
+    fn applied_run_creates_and_records_a_checkpoint() {
+        // Redirect the shadow-git store to a temp dir so the test never touches ~/.lectern.
+        // (No other test does an applied run, so nothing else reads this env var.)
+        let ckpt_dir = std::env::temp_dir().join(format!(
+            "lectern-ckpt-run-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::env::set_var("LECTERN_CHECKPOINT_DIR", &ckpt_dir);
+
+        let dir = tmp_workspace(&[("readme.md", "hello")]);
+        let engine = Engine::with_store(Store::open_in_memory().unwrap());
+        let ws = engine.open_workspace(&dir).unwrap();
+        let backend = MockBackend { fast: true };
+
+        let mut saw_checkpoint = false;
+        engine
+            .run(
+                &ws,
+                "add a greeting to the readme",
+                &backend,
+                RunOptions {
+                    apply: true,
+                    worktree: false,
+                },
+                |ev| {
+                    if matches!(ev, AgentEvent::Checkpoint { .. }) {
+                        saw_checkpoint = true;
+                    }
+                },
+            )
+            .unwrap();
+        assert!(saw_checkpoint, "an applied run emits a Checkpoint event");
+        let cps = engine.store.list_checkpoints(&ws.id, 10).unwrap();
+        assert_eq!(cps.len(), 1, "the checkpoint was recorded");
+        assert!(!cps[0].0.is_empty(), "checkpoint has a git sha");
+
+        // A plan-only run (apply=false) must NOT checkpoint — nothing was written.
+        engine
+            .run(
+                &ws,
+                "just look around",
+                &backend,
+                RunOptions::default(),
+                |_| {},
+            )
+            .unwrap();
+        assert_eq!(
+            engine.store.list_checkpoints(&ws.id, 10).unwrap().len(),
+            1,
+            "a plan-only run does not checkpoint"
+        );
+
+        std::env::remove_var("LECTERN_CHECKPOINT_DIR");
+        let _ = std::fs::remove_dir_all(&ckpt_dir);
     }
 
     #[test]

@@ -63,6 +63,13 @@ CREATE TABLE IF NOT EXISTS schedules (
   reason TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending',
   created_at INTEGER NOT NULL, last_run INTEGER
 );
+-- Checkpoints: the session↔snapshot index for rewind. The snapshot content lives in the
+-- shadow-git store (crate::checkpoint); git_sha links a row to its commit there.
+CREATE TABLE IF NOT EXISTS checkpoints (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+  git_sha TEXT NOT NULL, label TEXT NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS checkpoints_ws ON checkpoints(workspace_id);
 "#;
 
 pub type ScheduleRow = (String, String, String, i64, i64, String, String);
@@ -81,6 +88,8 @@ fn now_secs() -> i64 {
 }
 
 pub type SessionRow = (String, String, String, i64, String); // id, title, backend, created_at, status
+
+pub type CheckpointRow = (String, String, String, i64); // git_sha, label, session_id, created_at
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
@@ -236,6 +245,37 @@ impl Store {
             params![session_id, path, added, removed, status],
         )?;
         Ok(())
+    }
+
+    /// Record that a workspace snapshot (`git_sha`, in the shadow-git store) was taken
+    /// before `session_id`'s turn. The label is the prompt.
+    pub fn record_checkpoint(
+        &self,
+        session_id: &str,
+        workspace_id: &str,
+        git_sha: &str,
+        label: &str,
+        ts: i64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO checkpoints (session_id, workspace_id, git_sha, label, created_at) VALUES (?1,?2,?3,?4,?5)",
+            params![session_id, workspace_id, git_sha, label, ts],
+        )?;
+        Ok(())
+    }
+
+    /// Checkpoints for a workspace, newest first: (git_sha, label, session_id, created_at).
+    pub fn list_checkpoints(&self, workspace_id: &str, limit: i64) -> Result<Vec<CheckpointRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT git_sha, label, session_id, created_at FROM checkpoints
+             WHERE workspace_id = ?1 ORDER BY id DESC LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![workspace_id, limit], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     pub fn rename_session(&self, session_id: &str, title: &str) -> Result<()> {

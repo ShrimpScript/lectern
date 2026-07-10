@@ -14,6 +14,9 @@ pub enum AgentEvent {
     },
     /// A learned skill was auto-applied to this turn (its conventions/recipe injected).
     SkillApplied { name: String, why: String },
+    /// A snapshot of the workspace was captured before this turn wrote to disk, so the
+    /// user can rewind here. `id` is the checkpoint id; `label` is the prompt.
+    Checkpoint { id: String, label: String },
     /// Auto-routing picked a model for this task because it excels at this kind of work.
     ModelRouted { model: String, reason: String },
     /// A proposed plan of steps.

@@ -1089,6 +1089,14 @@ fn render_event(ev: AgentEvent) {
                 dim(&format!("· {why}"))
             );
         }
+        AgentEvent::Checkpoint { id, label } => {
+            println!(
+                "{} {} {}",
+                dim("checkpoint"),
+                bold(&id),
+                dim(&format!("· {label}  (lectern rewind {id})"))
+            );
+        }
         AgentEvent::ModelRouted { model, reason } => {
             println!(
                 "⇄ routed to {} {}",
