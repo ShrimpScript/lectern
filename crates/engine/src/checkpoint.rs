@@ -71,14 +71,20 @@ fn git(git_dir: &Path, ws_root: &Path, args: &[&str]) -> Result<Output> {
         .map_err(|e| anyhow!("git not available: {e}"))
 }
 
-/// Baseline ignore patterns so a snapshot never captures build output, VCS dirs, or the
-/// brain store. The workspace's own `.gitignore` is honored automatically (its files are
-/// in the work tree), so this only adds a floor for non-git folders.
+/// Baseline ignore patterns so a snapshot never captures build output, VCS dirs, the brain
+/// store, or secrets. The workspace's own `.gitignore` is honored automatically (its files
+/// are in the work tree), so this only adds a floor for non-git folders.
+///
+/// Secrets (`.env*`) are deliberately excluded: they are never copied into the shadow store,
+/// and a rewind therefore leaves them untouched — undoing an agent's code edits should not
+/// silently roll back (or snapshot a plaintext copy of) the user's credentials.
 fn write_excludes(git_dir: &Path) -> Result<()> {
     let info = git_dir.join("info");
     std::fs::create_dir_all(&info)?;
     let mut patterns: Vec<String> = crate::IGNORE.iter().map(|s| format!("{s}/")).collect();
     patterns.push(".lectern/".into());
+    patterns.push(".env".into());
+    patterns.push(".env.*".into());
     let body = patterns.join("\n") + "\n";
     std::fs::File::create(info.join("exclude"))?.write_all(body.as_bytes())?;
     Ok(())
@@ -369,5 +375,89 @@ mod tests {
         let id = snapshot_in(&f.git_dir, &f.ws, "empty base").unwrap();
         assert!(id.is_some());
         assert_eq!(list_in(&f.git_dir, &f.ws).unwrap().len(), 1);
+    }
+
+    // A git command against the *user's* own repo (their GIT_DIR), config-isolated.
+    fn user_git(ws: &Path, args: &[&str]) -> std::process::Output {
+        Command::new("git")
+            .current_dir(ws)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(args)
+            .output()
+            .unwrap()
+    }
+
+    #[test]
+    fn does_not_touch_the_users_own_git() {
+        let f = Fixture::new("usergit");
+        // The workspace is itself a real git repo with a commit.
+        user_git(&f.ws, &["init", "-q"]);
+        user_git(&f.ws, &["config", "user.email", "u@e.com"]);
+        user_git(&f.ws, &["config", "user.name", "U"]);
+        f.write("a.txt", "committed");
+        user_git(&f.ws, &["add", "-A"]);
+        user_git(&f.ws, &["commit", "-qm", "base"]);
+        let head_before = user_git(&f.ws, &["rev-parse", "HEAD"]);
+        let head_before = String::from_utf8_lossy(&head_before.stdout)
+            .trim()
+            .to_string();
+
+        // Lectern snapshots, the agent mangles + adds a file, we rewind.
+        let cp = snapshot_in(&f.git_dir, &f.ws, "before").unwrap().unwrap();
+        f.write("a.txt", "MANGLED");
+        f.write("b.txt", "added");
+        restore_in(&f.git_dir, &f.ws, &cp).unwrap();
+
+        // The user's repo is untouched: same HEAD, and the working tree is clean (files are
+        // back to the committed state) — criterion 3.
+        let head_after = user_git(&f.ws, &["rev-parse", "HEAD"]);
+        let head_after = String::from_utf8_lossy(&head_after.stdout)
+            .trim()
+            .to_string();
+        assert_eq!(head_before, head_after, "user git HEAD unchanged");
+        let status = user_git(&f.ws, &["status", "--porcelain"]);
+        let status = String::from_utf8_lossy(&status.stdout);
+        assert!(
+            status.trim().is_empty(),
+            "user tree clean after rewind, got {status:?}"
+        );
+        assert_eq!(f.read("a.txt").as_deref(), Some("committed"));
+        assert!(f.read("b.txt").is_none());
+    }
+
+    #[test]
+    fn binary_files_survive_a_round_trip() {
+        let f = Fixture::new("binary");
+        let bytes: Vec<u8> = (0u8..=255).cycle().take(4096).collect();
+        std::fs::write(f.ws.join("blob.bin"), &bytes).unwrap();
+        let cp = snapshot_in(&f.git_dir, &f.ws, "with binary")
+            .unwrap()
+            .unwrap();
+        std::fs::write(f.ws.join("blob.bin"), b"corrupted").unwrap();
+        restore_in(&f.git_dir, &f.ws, &cp).unwrap();
+        let restored = std::fs::read(f.ws.join("blob.bin")).unwrap();
+        assert_eq!(restored, bytes, "binary content restored byte-for-byte");
+    }
+
+    #[test]
+    fn secrets_and_brain_store_are_never_snapshotted() {
+        let f = Fixture::new("secrets");
+        f.write("src.rs", "code");
+        f.write(".env", "SECRET=hunter2");
+        f.write(".env.local", "TOKEN=abc");
+        f.write(".lectern/brain.db", "sqlite");
+        snapshot_in(&f.git_dir, &f.ws, "base").unwrap();
+        let files = git(&f.git_dir, &f.ws, &["ls-files"]).unwrap();
+        let tracked = String::from_utf8_lossy(&files.stdout);
+        assert!(tracked.contains("src.rs"));
+        assert!(
+            !tracked.contains(".env"),
+            "secrets excluded, got {tracked:?}"
+        );
+        assert!(
+            !tracked.contains(".lectern"),
+            "brain store excluded, got {tracked:?}"
+        );
     }
 }

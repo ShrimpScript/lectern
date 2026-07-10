@@ -3304,7 +3304,35 @@ mod tests {
             "a plan-only run does not checkpoint"
         );
 
-        std::env::remove_var("LECTERN_CHECKPOINT_DIR");
+        // Leave LECTERN_CHECKPOINT_DIR set (to a temp dir) — never remove it, so a
+        // concurrent test can never fall back to the real ~/.lectern between tests.
+        let _ = std::fs::remove_dir_all(&ckpt_dir);
+    }
+
+    #[test]
+    fn home_workspace_is_not_checkpointed() {
+        // Keep any checkpoint writes out of the real ~/.lectern even if the guard breaks.
+        let ckpt_dir = std::env::temp_dir().join(format!(
+            "lectern-ckpt-home-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::env::set_var("LECTERN_CHECKPOINT_DIR", &ckpt_dir);
+
+        let dir = tmp_workspace(&[("a.txt", "hi")]);
+        let engine = Engine::with_store(Store::open_in_memory().unwrap());
+        let ws = engine.open_workspace(&dir).unwrap();
+
+        // is_home = true → the pre-run snapshot is skipped entirely: no event, no record.
+        let mut events = 0;
+        engine.checkpoint_before_run(&ws.root, &ws.id, "sess", "prompt", true, &mut |_| {
+            events += 1;
+        });
+        assert_eq!(events, 0, "no Checkpoint event for the home workspace");
+        assert!(engine
+            .store
+            .list_checkpoints(&ws.id, 10)
+            .unwrap()
+            .is_empty());
         let _ = std::fs::remove_dir_all(&ckpt_dir);
     }
 
