@@ -197,6 +197,7 @@ export function Onboarding({ backends, hasFolder, onPickFolder, onRecheck, onDon
         <div><b style={{ color: "var(--fg)" }}>Just type</b> — describe a task; Lectern plans it and shows the changes for review.</div>
         <div><b style={{ color: "var(--fg)" }}>/conduct</b> — orchestrates: splits the task and hands each piece to the best model.</div>
         <div><b style={{ color: "var(--fg)" }}>/one-shot</b> — autonomous: give a short brief, it builds the whole thing.</div>
+        <div><b style={{ color: "var(--fg)" }}>Rewind</b> — every run is checkpointed first, so if you don&apos;t like the result you can restore your files and try a different prompt.</div>
       </div>
     </div>,
   ][step];
