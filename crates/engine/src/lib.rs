@@ -3,6 +3,7 @@
 //! directly; `lecternd` will expose it over IPC. See Lectern-Brain/03-Architecture.
 pub mod audit;
 pub mod backend;
+pub mod checkpoint;
 pub mod cloud;
 pub mod codegraph;
 pub mod diag;
@@ -2556,7 +2557,7 @@ fn remove_worktree(main: &Path, wt: &Worktree) {
         .output();
 }
 
-const IGNORE: &[&str] = &[
+pub(crate) const IGNORE: &[&str] = &[
     ".git",
     "node_modules",
     "target",
