@@ -1,74 +1,59 @@
 # Changelog
 
-All notable Lectern changes, newest first. Dates are ship dates on `main`.
+All notable changes to Lectern are recorded here. This file is the single source of
+truth: each GitHub Release, the website changelog, and the in-app "what's new" are
+generated from it.
 
-## 2026-07-03
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
+Lectern follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
+[RELEASING.md](RELEASING.md) for how a release is cut.
 
-### TUI v3 — OpenCode-class terminal shell (PRs #175–#184)
-- New single-focus layout: header · full-width conversation · always-focused
-  input · status bar (model · mode · ctx · run state).
-- One command registry → slash commands (prefix+fuzzy), `^X` leader chords,
-  and a self-generating `/help`.
-- Fuzzy dialog kit: sessions (★ pinned first, ● running, `^R` inline rename),
-  models, themes (reads the desktop theme manager's files).
-- Sticky run modes `/plan /apply /conduct /one-shot` with a tinted pill.
-- Full-screen tinted diff viewer (`/diffs`), `/clean` machinery toggle,
-  `/usage` + `/mcp-servers` read-only panels.
-- Preferences persist in `~/.lectern/tui.json`; real mouse support.
-- Ships as a single binary; `lectern tui` launches it from anywhere.
-- Verification: `scripts/tui-drive.sh` (17 scripted steps, committed captures).
+## [Unreleased]
 
-### Desktop-verified GUI run (PRs #193–#197)
-- Tile drag-resize + Share "Copied ✓" feedback (#193); real `/skill` + `/mcp`
-  commands (#194); preview rail v1 as a work-panel tab (#195).
-- **Cross-surface sessions shipped**: desktop chats dual-write into the engine
-  store (#196), and the store is authoritative at boot — TUI/CLI sessions
-  appear in the desktop with lazy-loaded history, renames from any surface
-  win by recency (#197).
+### Added
+- **Checkpoints & rewind.** Lectern snapshots your workspace before an agent writes to
+  it, so you can undo a run you don't like and try a different prompt. Snapshots use a
+  private, per-workspace git store that is completely separate from your project's own
+  `.git`, so it works on non-git folders and never touches your history. Rewind reverts
+  edits and removes files the agent added, and is itself reversible.
+  - CLI: `lectern checkpoint list` and `lectern rewind <id>`.
+  - Desktop: a checkpoint marker in the chat with an inline **Restore** action that also
+    re-fills the composer so you can adjust the prompt and try again.
+  - Secrets (`.env`) and the brain store are never snapshotted.
 
-### Continued development (PRs #185–#191)
-- Entitlement tokens are EdDSA-signed JWTs when `LECTERN_SIGNING_KEY` is set
-  (`npm run gen-signing-key`); honest `signed:false` otherwise (#185).
-- README + site truth pass: Linux-first wording, dual-transport daemon,
-  TUI sections (#186).
-- Session-unification phase 1: engine store carries desktop session metadata
-  (`meta` + `updated_at`, validated writes) + tauri surface; one shared
-  `Store::migrate()` for file-backed and in-memory stores (#187).
-- Sessions-dialog inline rename; preview-rail design doc (#188).
-- Drive suite caught + fixed fresh-session adoption; securebundle
-  tamper/truncation tests (#189).
-- Docker/SSH terminal-backend design doc; Lectern-Brain vault synced (#190).
-- Injectable-path MCP overview + tests; `lectern-tui --version` (#191).
+## [0.6.0] - 2026-07-08
 
-## 2026-07-02 → 2026-07-03
+### Changed
+- **Smarter, leaner memory.** Recall now applies a relevance floor, so small talk recalls
+  nothing while genuine matches still surface. When memory content is needed, only the
+  most relevant window of a file enters context (roughly 9× less recalled context on a
+  typical task). The agentic path passes recalled paths, not file contents.
 
-### Ports — Windows + macOS first-class program (PRs #170–#174)
-- **Keep-it-green rule**: every PR touching engine/CLI/TUI proves Windows
-  compile+test before merge; weekly macOS sweep; portability lint in main CI.
-- **Cross-platform daemon transport**: unix socket unchanged on Linux/macOS;
-  Windows uses 127.0.0.1 + a per-boot token required on every request.
-- Full daemon session loop proven on real Windows AND macOS runners;
-  **the desktop app launched on real Windows and macOS machines for the
-  first time** (exit-code launch smoke, both green).
-- GUI skill replay states plainly it's Linux-only for now.
+### Added
+- **One-click provider setup.** Each provider in Settings (Claude Code, Antigravity,
+  OpenCode, OpenRouter, Ollama) expands an OS-aware panel with the exact install command,
+  a copy button, an auth next-step, and links. Vetted user-space installers (OpenCode,
+  Ollama) have a one-click install that streams its output.
+- **Feature-level documentation** at [getlectern.vercel.app/docs](https://getlectern.vercel.app/docs)
+  covering chat commands, the Conductor, the brain, scheduling, and the Hub.
 
-### Interactive fixes (PRs #160–#169)
-- Embedded terminal: PTY output moved to tauri Channels (works in release
-  builds) + blended inset redesign; live-proven in the real app (#166–#167).
-- TUI stale-daemon capability probe — a pinging-but-ancient daemon is
-  rejected with a clear message (#168).
-- Lag-spike fixes: 55× cheaper context meter, MCP probing off the boot path,
-  workspace re-index throttling (1.85s → 0.07s per message) (#160).
-- Connect library (25 verified MCP servers + channels), GitHub-style usage
-  activity grid, boot splash, typewriter streaming, machinery-row icons,
-  menu dismissal fix (#161–#165).
-- Pinned-chat icons, Hermes-teardown research, tileable sessions (tmux-style
-  splits), session terminal button (#166).
+## [0.5.0] - 2026-07-06
 
-## Earlier — (PRs #121–#159, 2026-07-02)
-Cockpit clarity (custom selects/switches, provider truth rows, routing
-config), MCP ecosystem (12-server catalog, cross-harness registration w/
-truthful support matrix, Channels split), power features (clean/verbose
-output, chat folders/export/themes/usage/context meter), marketplace hub
-(official tier, docs viewer, $0 AI audit gate), TUI v2 chat-core parity,
-Win/Mac CI foundations + unsigned installers, E2EE session export/import.
+### Added
+- **First public release.** Local-first agent orchestration with per-task model routing,
+  a persistent brain (memory, learned skills, code graph), and multi-provider support
+  (Claude Code, Antigravity, OpenCode, OpenRouter, Ollama).
+- **Terminal stack** — CLI, a full TUI, and a background daemon, installable with one
+  command; also a Nix profile install.
+- **Desktop app** — a native cockpit (Tauri) with cross-platform installers for Linux
+  (AppImage, `.deb`), Windows (`.exe`), and macOS (`.dmg`); tiled sessions, an embedded
+  terminal, live streaming, and a work-panel preview rail.
+- **The Conductor** — plans a task, routes each step to the model that fits, and
+  cross-reviews the result.
+- **MCP + the Hub** — a catalog of MCP servers with cross-harness registration, and a
+  community skills hub with an audit gate.
+- Sessions are shared across the desktop, TUI, and CLI through one engine store.
+
+[Unreleased]: https://github.com/ShrimpScript/lectern/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ShrimpScript/lectern/releases/tag/v0.6.0
+[0.5.0]: https://github.com/ShrimpScript/lectern/releases/tag/v0.5.0
