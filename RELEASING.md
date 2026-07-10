@@ -42,15 +42,33 @@ the change, so cutting a release never means reconstructing history.
 3. **Bump the version** in `Cargo.toml` and `tauri.conf.json` (they must match).
 4. **Open a PR** with the changelog + version bump; merge on green CI.
 5. **Tag** the merge commit `vX.Y.Z` and push the tag.
-6. **Build the signed desktop artifacts.** From `apps/desktop`, a signed AppImage plus its
-   `.sig` and the updater manifest (`latest.json`) are produced with the updater signing
-   key (kept locally, never committed). The Windows/macOS installers come from the
-   `Cross-platform` workflow (`workflow_dispatch` with `installers: true`).
-7. **Create the GitHub Release** for the tag. The release body is the matching section of
-   `CHANGELOG.md`. Attach the installers, the CLI tarball, `SHA256SUMS.txt`, the signed
-   AppImage + `.sig`, and `latest.json`.
-8. **Publish the update manifest.** `latest.json` is served from the release so installed
-   apps discover the new version and can update themselves.
+6. **Build the signed desktop artifacts.** From `apps/desktop`, with the signing key in the
+   environment, build the AppImage and its `.sig`:
+
+   ```
+   export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.lectern/lectern-updater.key)"
+   export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""   # set if the key has one
+   npm --prefix apps/desktop run app:build
+   ```
+
+   The signed `Lectern_X.Y.Z_amd64.AppImage` and `.AppImage.sig` land in
+   `apps/desktop/src-tauri/target/release/bundle/appimage/`. The Windows/macOS installers
+   come from the `Cross-platform` workflow (`workflow_dispatch` with `installers: true`).
+7. **Generate the update manifest.** Point it at the release download for this version:
+
+   ```
+   scripts/make-latest-json.sh X.Y.Z \
+     apps/desktop/src-tauri/target/release/bundle/appimage/Lectern_X.Y.Z_amd64.AppImage \
+     apps/desktop/src-tauri/target/release/bundle/appimage/Lectern_X.Y.Z_amd64.AppImage.sig \
+     > latest.json
+   ```
+
+   (Pass a notes file as a 4th argument to embed release notes.)
+8. **Create the GitHub Release** for the tag with the matching `CHANGELOG.md` section as the
+   body, and attach: the installers, the CLI tarball, `SHA256SUMS.txt`, the signed AppImage +
+   `.sig`, and `latest.json`. Because the app's updater endpoint is
+   `releases/latest/download/latest.json`, publishing the release makes installed apps
+   discover the update automatically.
 9. **Verify auto-update.** An installed older AppImage should detect the new version, show
    its "what's new", download, and relaunch.
 10. **Confirm the website is current** — the changelog page reflects the new release (it
