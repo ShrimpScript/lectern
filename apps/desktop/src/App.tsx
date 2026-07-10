@@ -27,6 +27,7 @@ export type Ev =
   | { type: "thinking" }
   | { type: "thought"; summary: string; recalls: string[] }
   | { type: "skill_applied"; name: string; why: string }
+  | { type: "checkpoint"; id: string; label: string }
   | { type: "model_routed"; model: string; reason: string }
   | { type: "plan"; steps: { done: boolean; text: string }[] }
   | { type: "file_edit"; path: string; added: number; removed: number; preview: { kind: string; text: string }[] }
@@ -1095,7 +1096,7 @@ function TileView({ node, sessions, activeId, renderChat, onFocus, onPick, onSpl
    collapse into one expandable strip per consecutive run; answers, plans, diffs and
    errors stay. Per-chat override via the header pill; default in Settings. */
 const MACHINERY = new Set(["thought", "skill_applied", "model_routed", "terminal"]);
-function renderEvents(session: Session, clean: boolean, onRestore?: (text: string) => void) {
+function renderEvents(session: Session, clean: boolean, onRestore?: (text: string) => void, onRewind?: (id: string, label: string) => void) {
   const out: React.ReactNode[] = [];
   const events = session.events;
   // "Edit & retry" on the trailing error: put the failed prompt back in the composer.
@@ -1107,7 +1108,7 @@ function renderEvents(session: Session, clean: boolean, onRestore?: (text: strin
   };
   const item = (ev: Ev, i: number) => (
     <div key={i} className="lectern-msg" style={{ display: "flex", flexDirection: "column", alignItems: ev.type === "user" ? "flex-end" : "stretch" }}>
-      <EventView ev={ev} live={session.busy && i === events.length - 1 && ev.type === "message"} onRetry={ev.type === "error" ? retryFor(i) : undefined} />
+      <EventView ev={ev} live={session.busy && i === events.length - 1 && ev.type === "message"} onRetry={ev.type === "error" ? retryFor(i) : undefined} onRewind={ev.type === "checkpoint" ? onRewind : undefined} />
     </div>
   );
   if (!clean) {
@@ -1219,6 +1220,24 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
     // session.busy: re-list when a run starts/ends so files the agent wrote appear.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.path, session.busy]);
+
+  // Rewind the workspace to a checkpoint, then refresh the file tree and drop the original
+  // prompt back into the composer so the user can adjust and try again (re-steer).
+  const rewindTo = async (id: string, label: string) => {
+    try {
+      const r = await invoke<{ target: string; redo: string | null; changed: string[] }>("rewind_checkpoint", { path: session.path, id });
+      treeCache.delete(session.path);
+      invoke<FileEntry[]>("list_dir", { path: session.path }).then((files) => { treeCache.set(session.path, files); setTree(files); }).catch(() => {});
+      const n = r.changed.length;
+      onPatch((s) => ({
+        ...s,
+        draft: s.draft.trim() ? s.draft : label,
+        events: [...s.events, { type: "thought", summary: n ? `Rewound to ${id} — ${n} file${n === 1 ? "" : "s"} restored` : `Already at ${id}`, recalls: [] }],
+      }));
+    } catch (e) {
+      onPatch((s) => ({ ...s, events: [...s.events, { type: "error", message: `Rewind failed: ${String(e)}` }] }));
+    }
+  };
 
   const isClaude = session.backend === "claude-code" || (session.backend === "auto" && claudeAvailable);
   const empty = session.events.length === 0;
@@ -1440,7 +1459,7 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
               </div>
             ) : (
               <div style={{ maxWidth: COL, margin: "0 auto", padding: "26px 24px 30px", display: "flex", flexDirection: "column", gap: 15 }}>
-                {renderEvents(session, clean, (text) => onPatch((s) => ({ ...s, draft: text })))}
+                {renderEvents(session, clean, (text) => onPatch((s) => ({ ...s, draft: text })), rewindTo)}
                 {session.busy && <Working tokens={runningTokens(session.events)} />}
                 {session.summary && <SummaryView s={session.summary} />}
               </div>
@@ -2252,6 +2271,7 @@ const BrainMini = <svg {...mi} aria-hidden><path d="M9.5 4.5a3 3 0 0 0-3 3c-1.7.
 const SparkMini = <svg {...mi} aria-hidden><path d="M12 3.5 13.8 9 19.5 11 13.8 13 12 18.5 10.2 13 4.5 11 10.2 9 12 3.5Z" /></svg>;
 const RouteMini = <svg {...mi} aria-hidden><circle cx="5.5" cy="18.5" r="2" /><circle cx="18.5" cy="5.5" r="2" /><path d="M7.5 18.5H14a3.5 3.5 0 0 0 0-7H9.5a3.5 3.5 0 0 1 0-7h7" /></svg>;
 const TermMini = <svg {...mi} aria-hidden><rect x="3" y="4.5" width="18" height="15" rx="2.5" /><path d="m7.5 9.5 3 3-3 3M12.5 15.5h4.5" /></svg>;
+const HistoryMini = <svg {...mi} aria-hidden><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 4v4h4" /><path d="M12 7.5V12l3 2" /></svg>;
 
 /* Hermes-style file chip: extension label in a small tile (real file identity,
    no invented brand marks). */
@@ -2419,7 +2439,30 @@ function StreamedMessage({ text, live }: { text: string; live: boolean }) {
 /* Memoized: pushEv only recreates the streaming (last) event object, so during
    60fps streaming every settled row keeps its reference and skips re-render —
    only the live row pays. */
-export const EventView = memo(function EventView({ ev, live, onRetry }: { ev: Ev; live?: boolean; onRetry?: () => void }) {
+// A rewind point in the timeline: the workspace snapshot taken before this turn wrote to
+// disk. "Restore" asks for confirmation inline, then reverts the workspace to this snapshot.
+function CheckpointMarker({ id, label, onRewind }: { id: string; label: string; onRewind?: (id: string, label: string) => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const link: React.CSSProperties = { border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", font: "inherit", padding: 0, textDecoration: "underline", textUnderlineOffset: 2 };
+  return (
+    <div className="mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: "var(--fg3)", padding: "1px 0" }}>
+      <span style={{ display: "inline-flex", flexShrink: 0 }}>{HistoryMini}</span>
+      <span>Checkpoint</span>
+      <span style={{ color: "var(--fg2)" }}>{id}</span>
+      {onRewind && !confirming && <button onClick={() => setConfirming(true)} style={link}>Restore</button>}
+      {onRewind && confirming && (
+        <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+          <span>restore this snapshot?</span>
+          <button disabled={busy} onClick={async () => { setBusy(true); try { await onRewind(id, label); } finally { setBusy(false); setConfirming(false); } }} style={{ ...link, color: "var(--fg)" }}>{busy ? "restoring…" : "yes, restore"}</button>
+          <button disabled={busy} onClick={() => setConfirming(false)} style={link}>cancel</button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+export const EventView = memo(function EventView({ ev, live, onRetry, onRewind }: { ev: Ev; live?: boolean; onRetry?: () => void; onRewind?: (id: string, label: string) => void }) {
   switch (ev.type) {
     case "user": {
       const imgs = (ev as any).images as string[] | undefined;
@@ -2457,6 +2500,8 @@ export const EventView = memo(function EventView({ ev, live, onRetry }: { ev: Ev
           <div style={{ fontSize: 12.5, color: "var(--fg2)", lineHeight: 1.5 }}>{(ev as any).why}</div>
         </Collapsible>
       );
+    case "checkpoint":
+      return <CheckpointMarker id={String((ev as any).id)} label={String((ev as any).label ?? "")} onRewind={onRewind} />;
     case "model_routed": {
       const m = String((ev as any).model || "default");
       const label = ({ opus: "Opus 4.8", sonnet: "Sonnet 4.6", haiku: "Haiku 4.5" } as Record<string, string>)[m] || m;

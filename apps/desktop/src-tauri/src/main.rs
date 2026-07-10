@@ -385,6 +385,56 @@ async fn skills(path: String)-> Vec<SkillInfo> {
         .unwrap()
 }
 
+/// A checkpoint the workspace can be rewound to (chat timeline marker + list).
+#[derive(serde::Serialize)]
+struct CheckpointInfo {
+    id: String,
+    label: String,
+    created_at: i64,
+}
+
+/// The outcome of a rewind — what was restored and how to undo it.
+#[derive(serde::Serialize)]
+struct RewindResult {
+    target: String,
+    redo: Option<String>,
+    changed: Vec<String>,
+}
+
+/// The workspace's checkpoints, newest first.
+#[tauri::command]
+async fn list_checkpoints(path: String) -> Vec<CheckpointInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Ok(engine) = Engine::open_default() else {
+            return vec![];
+        };
+        let Ok(ws) = engine.open_workspace(Path::new(&path)) else {
+            return vec![];
+        };
+        engine
+            .checkpoints(&ws)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| CheckpointInfo { id: c.id, label: c.label, created_at: c.created_at })
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Rewind the workspace to a checkpoint, undoing later edits. Captures a redo point first.
+#[tauri::command]
+async fn rewind_checkpoint(path: String, id: String) -> Result<RewindResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let engine = Engine::open_default().map_err(|e| e.to_string())?;
+        let ws = engine.open_workspace(Path::new(&path)).map_err(|e| e.to_string())?;
+        let r = engine.rewind(&ws, &id).map_err(|e| e.to_string())?;
+        Ok(RewindResult { target: r.target, redo: r.redo, changed: r.changed })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Re-enable a paused skill: clears its outcome record (fresh start).
 #[tauri::command]
 async fn reset_skill_stats(name: String) {
@@ -2925,6 +2975,8 @@ fn main() {
             engine_backends,
             claude_models,
             opencode_models,
+            list_checkpoints,
+            rewind_checkpoint,
             reset_skill_stats,
             get_user_profile,
             routing_summary,
