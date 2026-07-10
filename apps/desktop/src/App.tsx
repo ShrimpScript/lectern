@@ -266,6 +266,38 @@ export function App() {
       .catch(() => { setCustomVars({}); setCustomBase(null); });
   }, [prefs.custom_theme]);
   const effTheme = customBase ?? prefs.theme;
+  // In-app updater — on launch, ask the signed release manifest whether a newer version
+  // exists. In dev / offline / with no release yet this throws; ignore it so the banner
+  // only ever appears on a real update.
+  const updateRef = useRef<import("@tauri-apps/plugin-updater").Update | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<{ version: string; notes: string } | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { check } = await import("@tauri-apps/plugin-updater");
+        const up = await check();
+        if (up && !cancelled) {
+          updateRef.current = up;
+          setUpdateInfo({ version: up.version, notes: up.body ?? "" });
+        }
+      } catch { /* no endpoint / offline / dev — nothing to surface */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const runUpdate = async () => {
+    const up = updateRef.current;
+    if (!up || updateBusy) return;
+    setUpdateBusy(true);
+    try {
+      await up.downloadAndInstall();
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      await relaunch();
+    } catch {
+      setUpdateBusy(false);
+    }
+  };
   const [screen, setScreen] = useState<Screen>("chat");
   const [navOpen, setNavOpen] = useState(true);
   const [tiles, setTiles] = useState<TileNode | null>(null);
@@ -660,6 +692,7 @@ export function App() {
   return (
     <div style={{ ...themeStyle(effTheme), ...(customVars as React.CSSProperties), colorScheme: effTheme === "dark" ? "dark" : "light", height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--fg)", overflow: "hidden" }}>
       {!prefs.onboarded && <Onboarding backends={backends} hasFolder={!!active?.path?.trim()} onPickFolder={async () => { const p = await invoke<string | null>("pick_folder"); if (p) update(active.id, (s) => ({ ...s, path: p })); }} onRecheck={recheck} onDone={() => savePrefs({ onboarded: true })} />}
+      {updateInfo && <UpdateBanner info={updateInfo} busy={updateBusy} onUpdate={runUpdate} onDismiss={() => setUpdateInfo(null)} />}
       {doctor && !anyBackend && prefs.onboarded && <SetupBanner onOpenSettings={() => setScreen("settings")} />}
       {(recording || recordSteps) && <RecordBar recording={recording} steps={recordSteps} onStop={stopRecording} onSave={saveRecording} onDiscard={() => setRecordSteps(null)} />}
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
@@ -703,6 +736,27 @@ export function App() {
           {screen === "profile" && <Profile onSignOutHint={() => {}} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+// A newer signed release is available. Calm, monochrome, no animation — one line with
+// optional release notes and the two actions.
+function UpdateBanner({ info, busy, onUpdate, onDismiss }: { info: { version: string; notes: string }; busy: boolean; onUpdate: () => void; onDismiss: () => void }) {
+  const [showNotes, setShowNotes] = useState(false);
+  // Release notes come from the manifest (Markdown); drop heading markers so the banner
+  // reads cleanly whatever the source formatting.
+  const notes = info.notes.replace(/^#{1,6}\s+/gm, "").trim();
+  const btn = (primary: boolean): React.CSSProperties => ({ height: 24, padding: "0 11px", fontSize: 11.5, fontWeight: 700, border: primary ? "none" : "1px solid var(--bd)", background: primary ? "var(--btn)" : "transparent", color: primary ? "var(--btnfg)" : "var(--fg2)", borderRadius: 7, cursor: busy ? "default" : "pointer", fontFamily: "inherit", flexShrink: 0, opacity: busy ? 0.6 : 1 });
+  return (
+    <div className="mono" style={{ background: "var(--panel)", borderBottom: "1px solid var(--bd)", color: "var(--fg2)", fontSize: 12, lineHeight: 1.5, padding: "9px 16px", flexShrink: 0, display: "flex", flexDirection: "column", gap: showNotes ? 8 : 0 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
+        <span>Lectern {info.version} is available.</span>
+        {notes && <button onClick={() => setShowNotes((v) => !v)} style={{ border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", font: "inherit", textDecoration: "underline", textUnderlineOffset: 2, padding: 0 }}>{showNotes ? "Hide notes" : "What's new"}</button>}
+        <button disabled={busy} onClick={onUpdate} style={btn(true)}>{busy ? "Updating…" : "Restart & update"}</button>
+        <button disabled={busy} onClick={onDismiss} style={btn(false)}>Later</button>
+      </div>
+      {showNotes && notes && <div style={{ maxWidth: 720, margin: "0 auto", whiteSpace: "pre-wrap", fontSize: 11.5, maxHeight: 160, overflowY: "auto" }}>{notes}</div>}
     </div>
   );
 }

@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Core APIs and the in-app updater for the main window.",
   "windows": ["main"],
-  "permissions": ["core:default", "updater:default"]
+  "permissions": ["core:default", "updater:default", "process:default"]
 }
