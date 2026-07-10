@@ -190,6 +190,18 @@ enum Cmd {
         #[arg(short, long, default_value = ".")]
         path: PathBuf,
     },
+    /// Inspect the checkpoints a workspace can be rewound to.
+    Checkpoint {
+        #[command(subcommand)]
+        cmd: CheckpointCmd,
+    },
+    /// Rewind the workspace to a checkpoint, undoing an agent's edits.
+    Rewind {
+        /// Checkpoint id (see `lectern checkpoint list`). Defaults to the most recent.
+        id: Option<String>,
+        #[arg(short, long, default_value = ".")]
+        path: PathBuf,
+    },
     /// Export a session as an encrypted bundle (G3 — move sessions between machines).
     SessionExport {
         /// Session id (see `lectern sessions`).
@@ -341,6 +353,15 @@ enum DaemonCmd {
 }
 
 #[derive(Subcommand)]
+enum CheckpointCmd {
+    /// List the workspace's checkpoints (newest first).
+    List {
+        #[arg(short, long, default_value = ".")]
+        path: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
 enum SkillsCmd {
     /// List learned skills for a workspace.
     List {
@@ -409,6 +430,10 @@ fn run() -> Result<()> {
             budget,
         } => cmd_context(prompt.join(" "), &path, budget),
         Cmd::Sessions { path } => cmd_sessions(&path),
+        Cmd::Checkpoint { cmd } => match cmd {
+            CheckpointCmd::List { path } => cmd_checkpoints(&path),
+        },
+        Cmd::Rewind { id, path } => cmd_rewind(id.as_deref(), &path),
         Cmd::SessionExport {
             session_id,
             out,
@@ -1246,6 +1271,87 @@ fn cmd_sessions(path: &std::path::Path) -> Result<()> {
             pad(&status, 8),
             dim(&pad(&backend, 12)),
             title
+        );
+    }
+    Ok(())
+}
+
+/// A compact "3m ago" / "2d ago" from a unix-seconds timestamp.
+fn ago(ts: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(ts);
+    let d = (now - ts).max(0);
+    if d < 60 {
+        "just now".into()
+    } else if d < 3600 {
+        format!("{}m ago", d / 60)
+    } else if d < 86400 {
+        format!("{}h ago", d / 3600)
+    } else {
+        format!("{}d ago", d / 86400)
+    }
+}
+
+fn cmd_checkpoints(path: &std::path::Path) -> Result<()> {
+    let engine = Engine::open_default()?;
+    let ws = engine.open_workspace(path)?;
+    let cps = engine.checkpoints(&ws)?;
+    if cps.is_empty() {
+        println!(
+            "{}",
+            dim("no checkpoints yet — they're captured before an applied run (`lectern run \"…\" --apply`).")
+        );
+        return Ok(());
+    }
+    println!("{} {}", bold("Checkpoints"), dim(&format!("· {}", ws.name)));
+    for c in &cps {
+        println!(
+            "  {}  {}  {}",
+            bold(&c.id),
+            dim(&pad(&ago(c.created_at), 10)),
+            c.label
+        );
+    }
+    println!(
+        "\n{}",
+        dim("rewind with `lectern rewind <id>` (or `lectern rewind` for the most recent).")
+    );
+    Ok(())
+}
+
+fn cmd_rewind(id: Option<&str>, path: &std::path::Path) -> Result<()> {
+    let engine = Engine::open_default()?;
+    let ws = engine.open_workspace(path)?;
+    // Resolve "latest" / no id to the newest checkpoint.
+    let target = match id {
+        Some(s) if !s.eq_ignore_ascii_case("latest") => s.to_string(),
+        _ => match engine.checkpoints(&ws)?.first() {
+            Some(c) => c.id.clone(),
+            None => {
+                println!("{}", dim("no checkpoints to rewind to."));
+                return Ok(());
+            }
+        },
+    };
+    let r = engine.rewind(&ws, &target)?;
+    if r.changed.is_empty() {
+        println!("{} {}", dim("already at"), bold(&target));
+        return Ok(());
+    }
+    println!(
+        "{GREEN}✓{RESET} rewound to {} {}",
+        bold(&target),
+        dim(&format!("· {} file(s) restored", r.changed.len()))
+    );
+    for p in &r.changed {
+        println!("    {}", dim(p));
+    }
+    if let Some(redo) = &r.redo {
+        println!(
+            "\n{}",
+            dim(&format!("undo this rewind with `lectern rewind {redo}`"))
         );
     }
     Ok(())
