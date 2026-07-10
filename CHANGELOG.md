@@ -10,6 +10,8 @@ Lectern follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-10
+
 ### Added
 - **Checkpoints & rewind.** Lectern snapshots your workspace before an agent writes to
   it, so you can undo a run you don't like and try a different prompt. Snapshots use a
@@ -20,6 +22,11 @@ Lectern follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
   - Desktop: a checkpoint marker in the chat with an inline **Restore** action that also
     re-fills the composer so you can adjust the prompt and try again.
   - Secrets (`.env`) and the brain store are never snapshotted.
+- **In-app auto-updates (Linux).** The desktop app checks for newer signed releases and
+  offers a one-click **Restart & update** — download, install, relaunch. Every update is
+  verified against Lectern's signing key before it installs.
+- **"What's new" on update.** After updating, the app shows what changed in the new
+  version, drawn straight from this changelog.
 
 ## [0.6.0] - 2026-07-08
 
@@ -54,6 +61,7 @@ Lectern follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
   community skills hub with an audit gate.
 - Sessions are shared across the desktop, TUI, and CLI through one engine store.
 
-[Unreleased]: https://github.com/ShrimpScript/lectern/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/ShrimpScript/lectern/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/ShrimpScript/lectern/releases/tag/v0.7.0
 [0.6.0]: https://github.com/ShrimpScript/lectern/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ShrimpScript/lectern/releases/tag/v0.5.0

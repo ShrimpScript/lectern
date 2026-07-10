@@ -15,7 +15,7 @@ Wraps Claude Code, Antigravity, and OpenCode with shared memory, one session<br/
 history, and a Conductor that hands each task to the model suited for it.<br/>
 Desktop app, terminal UI, and CLI. Local-first, Apache-2.0.
 
-<a href="https://github.com/ShrimpScript/lectern/releases/latest"><b>Download v0.5.0</b></a> · <a href="https://getlectern.vercel.app/docs">Documentation</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="https://github.com/ShrimpScript/lectern-hub">Lectern Hub</a>
+<a href="https://github.com/ShrimpScript/lectern/releases/latest"><b>Download</b></a> · <a href="https://getlectern.vercel.app/docs">Documentation</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="https://github.com/ShrimpScript/lectern-hub">Lectern Hub</a>
 
 <table><tr>
 <td width="58%"><img src="docs/media/desktop.png" alt="Lectern desktop — plan cards, diffs, work panel" /></td>
