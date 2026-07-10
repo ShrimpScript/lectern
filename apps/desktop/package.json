@@ -3,7 +3,7 @@
   "version": "0.6.0",
   "private": true,
   "type": "module",
-  "description": "Lectern desktop app (Tauri v2 + React) \u2014 the agent workspace.",
+  "description": "Lectern desktop app (Tauri v2 + React) — the agent workspace.",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -25,6 +25,7 @@
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@rive-app/react-canvas": "^4.29.4",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "@uiw/react-codemirror": "^4.25.10",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",

@@ -16,6 +16,12 @@ node_modules
 **/.env
 **/.env*.local
 
+# Updater signing keys — the private key is kept outside the repo (see RELEASING.md);
+# this is a belt-and-suspenders guard so a key can never be committed by accident.
+*.key
+!**/*.key.pub
+.tauri/
+
 # Lectern-generated native skills (materialized from the skills DB on each run)
 **/.claude/skills/lectern-*
 
