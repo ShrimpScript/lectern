@@ -92,7 +92,7 @@ type Session = {
 type Screen = "chat" | "agent" | "marketplace" | "brain" | "usage" | "schedule" | "settings" | "profile" | "connect";
 export type ThemeName = "dark" | "light";
 export const THEME_VAR_WHITELIST = ["--bg", "--panel", "--panel2", "--elev", "--bd", "--bd2", "--fg", "--fg2", "--fg3", "--hov", "--btn", "--btnfg", "--backdrop", "--accent", "--chrome", "--tree"];
-export type Prefs = { theme: ThemeName; default_backend: string; default_model: string; default_apply: boolean; onboarded: boolean; clean_output: boolean; custom_theme: string | null };
+export type Prefs = { theme: ThemeName; default_backend: string; default_model: string; default_apply: boolean; onboarded: boolean; clean_output: boolean; custom_theme: string | null; whats_new_seen?: string | null };
 export type ScheduleInfo = { id: string; prompt: string; backend: string; apply: boolean; run_at: number; reason: string; status: string };
 type AgentSkill = { name: string; description: string };
 export type McpServer = { name: string; detail: string; connected: boolean; oc: boolean; agy: boolean };
@@ -272,6 +272,10 @@ export function App() {
   const updateRef = useRef<import("@tauri-apps/plugin-updater").Update | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ version: string; notes: string } | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
+  // "What's new" — after the user updates to a newer version, show that version's changelog
+  // once. Distinct from the update banner above (which offers an install of a version you
+  // don't have yet); this celebrates the version you're now running.
+  const [whatsNew, setWhatsNew] = useState<{ version: string; sections: ChangeSection[] } | null>(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -359,9 +363,21 @@ export function App() {
       invoke<ModelInfo[]>("models", { backend: "ollama" }).then(setOlModels).catch(() => {});
       loadMcp();
     }, 700);
-    invoke<Prefs>("get_prefs").then((p) => {
+    invoke<Prefs>("get_prefs").then(async (p) => {
       setPrefsState(p);
       setSessions((prev) => prev.map((s) => (s.events.length === 0 ? { ...s, backend: p.default_backend, model: p.default_model, apply: p.default_apply } : s)));
+      // Show the "what's new" once after an update to a newer version.
+      try {
+        const version = await invoke<string>("app_version");
+        const seen = p.whats_new_seen ?? null;
+        if (seen === null) {
+          savePrefs({ whats_new_seen: version }); // fresh install — set the baseline, don't interrupt
+        } else if (seen !== version) {
+          const sections = await fetchWhatsNew(version);
+          if (sections && sections.length) setWhatsNew({ version, sections });
+          else savePrefs({ whats_new_seen: version }); // no notes to show — just advance
+        }
+      } catch { /* offline or no version — skip */ }
     }).catch(() => {});
     // Restore the saved session list (chats persist across restarts) + ensure the
     // persistent Personal Agent session exists.
@@ -693,6 +709,7 @@ export function App() {
     <div style={{ ...themeStyle(effTheme), ...(customVars as React.CSSProperties), colorScheme: effTheme === "dark" ? "dark" : "light", height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--fg)", overflow: "hidden" }}>
       {!prefs.onboarded && <Onboarding backends={backends} hasFolder={!!active?.path?.trim()} onPickFolder={async () => { const p = await invoke<string | null>("pick_folder"); if (p) update(active.id, (s) => ({ ...s, path: p })); }} onRecheck={recheck} onDone={() => savePrefs({ onboarded: true })} />}
       {updateInfo && <UpdateBanner info={updateInfo} busy={updateBusy} onUpdate={runUpdate} onDismiss={() => setUpdateInfo(null)} />}
+      {whatsNew && <WhatsNewModal version={whatsNew.version} sections={whatsNew.sections} onClose={() => { savePrefs({ whats_new_seen: whatsNew.version }); setWhatsNew(null); }} />}
       {doctor && !anyBackend && prefs.onboarded && <SetupBanner onOpenSettings={() => setScreen("settings")} />}
       {(recording || recordSteps) && <RecordBar recording={recording} steps={recordSteps} onStop={stopRecording} onSave={saveRecording} onDiscard={() => setRecordSteps(null)} />}
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
@@ -735,6 +752,64 @@ export function App() {
           {screen === "settings" && <Suspense fallback={<div style={{ maxWidth: 680, margin: "0 auto", padding: 44 }}><div className="lectern-skel" style={{ height: 30, width: 160, marginBottom: 24 }} /><div className="lectern-skel" style={{ height: 180 }} /></div>}><Settings onBrowse={() => navTo("connect")} backends={backends} models={models} prefs={prefs} mcp={mcp} onMcp={loadMcp} onPrefs={savePrefs} onRecheck={recheck} /></Suspense>}
           {screen === "profile" && <Profile onSignOutHint={() => {}} />}
         </div>
+      </div>
+    </div>
+  );
+}
+
+type ChangeSection = { name: string; items: string[] };
+
+// Extract the current version's changelog section from the repo's CHANGELOG.md — the same
+// source the website and GitHub releases use. Best-effort: offline just skips the panel.
+async function fetchWhatsNew(version: string): Promise<ChangeSection[] | null> {
+  try {
+    const res = await fetch("https://raw.githubusercontent.com/ShrimpScript/lectern/main/CHANGELOG.md");
+    if (!res.ok) return null;
+    return parseVersionSections(await res.text(), version);
+  } catch {
+    return null;
+  }
+}
+
+function parseVersionSections(md: string, version: string): ChangeSection[] {
+  const esc = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const head = new RegExp("^##\\s+\\[" + esc + "\\]");
+  const sections: ChangeSection[] = [];
+  let cur: ChangeSection | null = null;
+  let grab = false;
+  for (const raw of md.split("\n")) {
+    const line = raw.replace(/\s+$/, "");
+    if (head.test(line)) { grab = true; continue; }
+    if (!grab) continue;
+    if (/^##\s+/.test(line) || /^\[[^\]]+\]:\s/.test(line)) break; // next version / link refs
+    const sec = line.match(/^###\s+(.+)/);
+    if (sec) { cur = { name: sec[1].trim(), items: [] }; sections.push(cur); continue; }
+    const bullet = line.match(/^-\s+(.+)/);
+    if (bullet) { if (!cur) { cur = { name: "", items: [] }; sections.push(cur); } cur.items.push(bullet[1]); continue; }
+    if (/^\s+-\s+/.test(line)) continue; // sub-bullet detail — omit from the headline panel
+    const cont = line.match(/^\s{2,}(\S.+)/);
+    if (cont && cur?.items.length) cur.items[cur.items.length - 1] += " " + cont[1];
+  }
+  return sections.filter((s) => s.items.length);
+}
+
+// You just updated — here's what changed. A dismissible, on-brand card shown once per
+// version. Reduced-motion-safe (the fade is disabled under prefers-reduced-motion).
+function WhatsNewModal({ version, sections, onClose }: { version: string; sections: ChangeSection[]; onClose: () => void }) {
+  return (
+    <div onClick={onClose} className="lectern-fadein" style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--panel)", border: "1px solid var(--bd)", borderRadius: 14, maxWidth: 540, width: "100%", maxHeight: "80vh", overflowY: "auto", padding: "28px 30px", boxShadow: "0 24px 70px rgba(0,0,0,0.42)" }}>
+        <div className="mono" style={{ fontSize: 11, color: "var(--fg3)", letterSpacing: "0.14em", textTransform: "uppercase" }}>What&apos;s new</div>
+        <h2 style={{ margin: "6px 0 20px", fontSize: 25, fontWeight: 800, letterSpacing: "-0.02em" }}>Lectern {version}</h2>
+        {sections.map((s, i) => (
+          <div key={i} style={{ marginBottom: 18 }}>
+            {s.name && <div className="mono" style={{ fontSize: 11, color: "var(--fg3)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 9 }}>{s.name}</div>}
+            <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 9 }}>
+              {s.items.map((it, j) => <li key={j} style={{ fontSize: 14, lineHeight: 1.5, color: "var(--fg2)" }}>{inlineMd(it, `wn${i}-${j}`)}</li>)}
+            </ul>
+          </div>
+        ))}
+        <button onClick={onClose} style={{ marginTop: 4, height: 34, padding: "0 18px", background: "var(--btn)", color: "var(--btnfg)", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Got it</button>
       </div>
     </div>
   );

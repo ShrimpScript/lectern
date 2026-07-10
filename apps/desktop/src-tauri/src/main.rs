@@ -112,6 +112,10 @@ struct Prefs {
     /// None/invalid = the immutable built-in Light/Dark.
     #[serde(default)]
     custom_theme: Option<String>,
+    /// The last app version whose "what's new" the user has seen. None = never shown
+    /// (a fresh install records the current version silently rather than interrupting).
+    #[serde(default)]
+    whats_new_seen: Option<String>,
 }
 impl Default for Prefs {
     fn default() -> Self {
@@ -123,6 +127,7 @@ impl Default for Prefs {
             onboarded: false,
             clean_output: false,
             custom_theme: None,
+            whats_new_seen: None,
         }
     }
 }
@@ -2062,6 +2067,13 @@ async fn pick_folder() -> Option<String> {
     .flatten()
 }
 
+/// This build's version (matches tauri.conf.json / the release tag) — used to decide
+/// whether to show the "what's new" for a version the user just updated to.
+#[tauri::command]
+fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 /// Load persisted desktop preferences (or defaults).
 #[tauri::command]
 fn get_prefs() -> Prefs {
@@ -3045,6 +3057,7 @@ fn main() {
             save_recorded_skill,
             account,
             pick_folder,
+            app_version,
             get_prefs,
             set_prefs,
             get_sessions,
