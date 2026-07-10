@@ -2948,6 +2948,8 @@ fn main() {
         return;
     }
     tauri::Builder::default()
+        // In-app updater: checks the signed release manifest and installs newer versions.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // Ports P3a/P3b: LECTERN_SMOKE=1 → prove the window+webview actually
         // constructs on this OS (the risky part of a port), print the marker,
         // exit clean. CI runs this on Windows + macOS runners.
