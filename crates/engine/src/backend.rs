@@ -196,16 +196,35 @@ fn sandbox_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Whether the sandbox keeps the network. Kept by default; `LECTERN_SANDBOX_NET`
+/// set to `off`/`0`/`none`/`no`/`false` fully isolates it (`--unshare-net`). Pure
+/// parse split out for testing.
+fn net_kept_from(val: Option<&str>) -> bool {
+    match val {
+        Some(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "off" | "0" | "none" | "no" | "false"
+        ),
+        None => true,
+    }
+}
+
+fn sandbox_net_kept() -> bool {
+    net_kept_from(std::env::var("LECTERN_SANDBOX_NET").ok().as_deref())
+}
+
 /// Build the base `Command` for spawning a backend `bin`, applying the bubblewrap
 /// sandbox when requested. Split from the env/probe lookups (`sandbox_on` = the
-/// user asked; `sandbox_ok` = bwrap is usable) so it is deterministically testable.
-/// When the sandbox is off this is exactly `Command::new(bin)`; when it is on but
-/// bwrap is unavailable it errors rather than running unconfined.
+/// user asked; `sandbox_ok` = bwrap is usable; `net` = keep the network) so it is
+/// deterministically testable. When the sandbox is off this is exactly
+/// `Command::new(bin)`; when it is on but bwrap is unavailable it errors rather
+/// than running unconfined.
 fn build_backend_command(
     bin: &str,
     ctx: &TurnContext,
     sandbox_on: bool,
     sandbox_ok: bool,
+    net: bool,
 ) -> Result<Command> {
     if !sandbox_on {
         return Ok(Command::new(bin));
@@ -218,26 +237,40 @@ fn build_backend_command(
     }
     // Expose, read-only, what the backend needs to run: its own binary's directory
     // (npm/nvm/homebrew installs live outside /usr) and the provider auth/config
-    // dirs. Full per-backend auth verification is a later slice.
+    // dirs. Missing paths are tolerated (ro-bind-try).
     let mut extra: Vec<std::path::PathBuf> = Vec::new();
     if let Some(dir) = Path::new(bin).parent() {
         extra.push(dir.to_path_buf());
     }
     let home = crate::home_dir();
-    for sub in [".claude", ".config", ".local/share"] {
+    for sub in [".claude", ".config", ".local/share", ".local/bin"] {
         extra.push(Path::new(&home).join(sub));
+    }
+    // When the network is kept, name resolution must work inside the sandbox. On
+    // systemd hosts /etc/resolv.conf symlinks into /run, which binding /etc alone
+    // doesn't expose — so bind the resolver's runtime dirs read-only too.
+    if net {
+        for p in ["/run/systemd/resolve", "/run/nscd"] {
+            extra.push(std::path::PathBuf::from(p));
+        }
     }
     let policy = crate::sandbox::SandboxPolicy {
         workspace: ctx.workspace_root.to_path_buf(),
         extra_ro_binds: extra,
-        net: true,
+        net,
     };
     Ok(crate::sandbox::wrap(bin, &policy))
 }
 
 /// The base `Command` for a backend spawn, sandboxed per the opt-in (default off).
 fn maybe_sandbox(bin: &str, ctx: &TurnContext) -> Result<Command> {
-    build_backend_command(bin, ctx, sandbox_enabled(), crate::sandbox::available())
+    build_backend_command(
+        bin,
+        ctx,
+        sandbox_enabled(),
+        crate::sandbox::available(),
+        sandbox_net_kept(),
+    )
 }
 
 /// Object-safe so the engine can hold `Box<dyn Backend>` and route between them.
@@ -1813,7 +1846,7 @@ mod tests {
     #[test]
     fn sandbox_off_is_a_plain_command() {
         let ws = Path::new("/home/u/proj");
-        let cmd = build_backend_command("claude", &tctx(ws), false, false).unwrap();
+        let cmd = build_backend_command("claude", &tctx(ws), false, false, true).unwrap();
         assert_eq!(cmd.get_program(), "claude");
         assert_eq!(cmd.get_args().count(), 0); // caller appends the real args
     }
@@ -1821,7 +1854,7 @@ mod tests {
     #[test]
     fn sandbox_requested_without_bwrap_errors() {
         let ws = Path::new("/home/u/proj");
-        let err = build_backend_command("claude", &tctx(ws), true, false).unwrap_err();
+        let err = build_backend_command("claude", &tctx(ws), true, false, true).unwrap_err();
         assert!(err.to_string().contains("bubblewrap"));
     }
 
@@ -1833,7 +1866,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("lectern-sbx-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let escape = Path::new("/etc/lectern_sbx_escape_test");
-        let status = build_backend_command("/bin/sh", &tctx(&dir), true, true)
+        let status = build_backend_command("/bin/sh", &tctx(&dir), true, true, true)
             .unwrap()
             .arg("-c")
             .arg("touch inside.txt; touch /etc/lectern_sbx_escape_test 2>/dev/null; true")
@@ -1854,7 +1887,7 @@ mod tests {
     #[test]
     fn sandbox_on_wraps_in_bwrap_with_the_workspace_bound() {
         let ws = Path::new("/home/u/proj");
-        let cmd = build_backend_command("/usr/bin/claude", &tctx(ws), true, true).unwrap();
+        let cmd = build_backend_command("/usr/bin/claude", &tctx(ws), true, true, true).unwrap();
         assert_eq!(cmd.get_program(), "bwrap");
         let args: Vec<String> = cmd
             .get_args()
@@ -1867,6 +1900,39 @@ mod tests {
         let dd = args.iter().position(|a| a == "--").expect("`--` present");
         assert_eq!(args[dd + 1], "/usr/bin/claude");
         assert_eq!(dd + 2, args.len());
+    }
+
+    #[test]
+    fn net_kept_parses_the_opt_out() {
+        assert!(net_kept_from(None)); // default: kept
+        assert!(net_kept_from(Some("1")));
+        assert!(net_kept_from(Some("")));
+        assert!(!net_kept_from(Some("off")));
+        assert!(!net_kept_from(Some("OFF")));
+        assert!(!net_kept_from(Some("0")));
+        assert!(!net_kept_from(Some(" none ")));
+    }
+
+    #[test]
+    fn sandbox_net_flag_plumbs_through() {
+        let ws = Path::new("/home/u/proj");
+        let argv_of = |net: bool| -> Vec<String> {
+            build_backend_command("/usr/bin/claude", &tctx(ws), true, true, net)
+                .unwrap()
+                .get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect()
+        };
+        // network kept (default): no --unshare-net, and the resolver dir is exposed
+        let kept = argv_of(true);
+        assert!(!kept.iter().any(|a| a == "--unshare-net"));
+        assert!(kept
+            .windows(2)
+            .any(|w| w == ["--ro-bind-try", "/run/systemd/resolve"]));
+        // isolated: --unshare-net present, resolver not bound
+        let isolated = argv_of(false);
+        assert!(isolated.iter().any(|a| a == "--unshare-net"));
+        assert!(!isolated.iter().any(|a| a == "/run/systemd/resolve"));
     }
 
     #[test]
