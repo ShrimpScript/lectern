@@ -14,6 +14,7 @@ pub mod mcp;
 pub mod orchestrator;
 pub mod registry;
 pub mod route;
+pub mod sandbox;
 pub mod securebundle;
 pub mod skillstats;
 pub mod store;
