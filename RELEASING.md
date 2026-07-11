@@ -14,10 +14,13 @@ Lectern follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
   store, the daemon protocol). Pre-1.0, breaking changes may land in a MINOR with a clear
   note in the changelog.
 
-The version lives in two places and must match:
+The version lives in these places and must match:
 
-- `Cargo.toml` → `[workspace.package] version`
-- `apps/desktop/src-tauri/tauri.conf.json` → `version`
+- `Cargo.toml` → `[workspace.package] version` — the CLI, daemon, and TUI inherit it
+  (`version.workspace = true`).
+- `apps/desktop/src-tauri/Cargo.toml` → `version` — the desktop app is its own crate,
+  outside the workspace, so it carries its own version.
+- `apps/desktop/src-tauri/tauri.conf.json` → `version`.
 
 ## When to release
 
