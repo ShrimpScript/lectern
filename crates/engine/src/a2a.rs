@@ -286,26 +286,56 @@ pub const TASK_NOT_FOUND: i64 = -32001;
 
 // ─────────────────────────── Inbound service ───────────────────────────
 
-/// Turns a prompt into an agent reply. The daemon supplies one that runs a real
-/// Lectern turn; tests supply a mock.
-pub type Runner = Box<dyn Fn(&str) -> anyhow::Result<String> + Send + Sync>;
+/// Turns a prompt into an agent reply, observing the cancel flag so a long run
+/// can be stopped mid-flight. The daemon supplies one that runs a real Lectern
+/// turn; tests supply a mock.
+pub type Runner = Box<
+    dyn Fn(&str, std::sync::Arc<std::sync::atomic::AtomicBool>) -> anyhow::Result<String>
+        + Send
+        + Sync,
+>;
 
-/// A minimal in-memory task store + JSON-RPC dispatcher for inbound A2A. Keeping
-/// the dispatch logic transport- and backend-agnostic (via the injected
-/// [`Runner`]) makes it unit-testable without a socket or a real backend.
-pub struct A2aService {
-    tasks: std::sync::Mutex<std::collections::HashMap<String, Task>>,
+/// A stored task plus the cancel flag its background run observes.
+struct TaskEntry {
+    task: Task,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+struct Inner {
+    tasks: std::sync::Mutex<std::collections::HashMap<String, TaskEntry>>,
     runner: Runner,
+}
+
+/// True once a task can no longer change state.
+fn is_terminal(state: TaskState) -> bool {
+    matches!(
+        state,
+        TaskState::Completed | TaskState::Failed | TaskState::Canceled
+    )
+}
+
+/// A minimal in-memory task store + JSON-RPC dispatcher for inbound A2A. Runs are
+/// asynchronous: `message/send` returns a WORKING task immediately and the turn
+/// finishes on a background thread; clients poll `tasks/get` and may `tasks/cancel`.
+/// Dispatch is transport- and backend-agnostic (via the injected [`Runner`]) and
+/// unit-testable without a socket or a real backend.
+pub struct A2aService {
+    inner: std::sync::Arc<Inner>,
 }
 
 impl A2aService {
     pub fn new<F>(runner: F) -> Self
     where
-        F: Fn(&str) -> anyhow::Result<String> + Send + Sync + 'static,
+        F: Fn(&str, std::sync::Arc<std::sync::atomic::AtomicBool>) -> anyhow::Result<String>
+            + Send
+            + Sync
+            + 'static,
     {
         A2aService {
-            tasks: std::sync::Mutex::new(std::collections::HashMap::new()),
-            runner: Box::new(runner),
+            inner: std::sync::Arc::new(Inner {
+                tasks: std::sync::Mutex::new(std::collections::HashMap::new()),
+                runner: Box::new(runner),
+            }),
         }
     }
 
@@ -327,6 +357,7 @@ impl A2aService {
         match req.method.as_str() {
             "message/send" => self.message_send(&req),
             "tasks/get" => self.tasks_get(&req),
+            "tasks/cancel" => self.tasks_cancel(&req),
             other => rpc_error(
                 &req.id,
                 error::METHOD_NOT_FOUND,
@@ -364,44 +395,65 @@ impl A2aService {
         user_msg.task_id = Some(task_id.clone());
         user_msg.context_id = Some(context_id.clone());
 
-        // This slice runs synchronously: the turn completes before we answer, so
-        // the returned Task is already terminal. Streaming / async lifecycle is a
-        // later slice. Never auto-applies to disk — an inbound peer's task returns
-        // proposed changes, it does not silently write the workspace.
-        let task = match (self.runner)(&prompt) {
-            Ok(reply) => {
-                let agent_msg = Message::agent_text(reply, &task_id, &context_id);
-                Task {
-                    id: task_id.clone(),
-                    context_id: context_id.clone(),
-                    status: TaskStatus {
-                        state: TaskState::Completed,
-                        message: Some(agent_msg.clone()),
-                        timestamp: Some(now_rfc3339()),
-                    },
-                    history: vec![user_msg, agent_msg],
-                    artifacts: vec![],
-                }
-            }
-            Err(e) => {
-                let agent_msg =
-                    Message::agent_text(format!("run failed: {e}"), &task_id, &context_id);
-                Task {
-                    id: task_id.clone(),
-                    context_id: context_id.clone(),
-                    status: TaskStatus {
-                        state: TaskState::Failed,
-                        message: Some(agent_msg),
-                        timestamp: Some(now_rfc3339()),
-                    },
-                    history: vec![user_msg],
-                    artifacts: vec![],
-                }
-            }
+        // The task starts WORKING and finishes on a background thread; clients poll
+        // tasks/get. Runs never auto-apply to disk — a peer's task returns proposed
+        // changes, it does not silently write the workspace.
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let task = Task {
+            id: task_id.clone(),
+            context_id: context_id.clone(),
+            status: TaskStatus {
+                state: TaskState::Working,
+                message: None,
+                timestamp: Some(now_rfc3339()),
+            },
+            history: vec![user_msg],
+            artifacts: vec![],
         };
-        if let Ok(mut store) = self.tasks.lock() {
-            store.insert(task_id, task.clone());
+        if let Ok(mut store) = self.inner.tasks.lock() {
+            store.insert(
+                task_id.clone(),
+                TaskEntry {
+                    task: task.clone(),
+                    cancel: cancel.clone(),
+                },
+            );
         }
+
+        let inner = self.inner.clone();
+        let (tid, cid) = (task_id, context_id);
+        std::thread::spawn(move || {
+            let result = (inner.runner)(&prompt, cancel.clone());
+            let Ok(mut store) = inner.tasks.lock() else {
+                return;
+            };
+            let Some(entry) = store.get_mut(&tid) else {
+                return;
+            };
+            // A concurrent tasks/cancel may have already finalized the task.
+            if is_terminal(entry.task.status.state) {
+                return;
+            }
+            let agent_msg = if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                entry.task.status.state = TaskState::Canceled;
+                Message::agent_text("run canceled", &tid, &cid)
+            } else {
+                match result {
+                    Ok(reply) => {
+                        entry.task.status.state = TaskState::Completed;
+                        Message::agent_text(reply, &tid, &cid)
+                    }
+                    Err(e) => {
+                        entry.task.status.state = TaskState::Failed;
+                        Message::agent_text(format!("run failed: {e}"), &tid, &cid)
+                    }
+                }
+            };
+            entry.task.status.message = Some(agent_msg.clone());
+            entry.task.status.timestamp = Some(now_rfc3339());
+            entry.task.history.push(agent_msg);
+        });
+
         rpc_result(
             &req.id,
             serde_json::to_value(&task).unwrap_or(serde_json::Value::Null),
@@ -420,15 +472,61 @@ impl A2aService {
             }
         };
         let found = self
+            .inner
             .tasks
             .lock()
             .ok()
-            .and_then(|s| s.get(&params.id).cloned());
+            .and_then(|s| s.get(&params.id).map(|e| e.task.clone()));
         match found {
             Some(task) => rpc_result(
                 &req.id,
                 serde_json::to_value(&task).unwrap_or(serde_json::Value::Null),
             ),
+            None => rpc_error(
+                &req.id,
+                TASK_NOT_FOUND,
+                &format!("task not found: {}", params.id),
+            ),
+        }
+    }
+
+    fn tasks_cancel(&self, req: &JsonRpcRequest) -> serde_json::Value {
+        // tasks/cancel params are just `{ id }`; TaskGetParams covers that.
+        let params: TaskGetParams = match serde_json::from_value(req.params.clone()) {
+            Ok(p) => p,
+            Err(e) => {
+                return rpc_error(
+                    &req.id,
+                    error::INVALID_PARAMS,
+                    &format!("invalid tasks/cancel params: {e}"),
+                );
+            }
+        };
+        let Ok(mut store) = self.inner.tasks.lock() else {
+            return rpc_error(&req.id, error::INTERNAL, "task store unavailable");
+        };
+        match store.get_mut(&params.id) {
+            Some(entry) => {
+                // Signal the running turn to stop, and finalize the task now so the
+                // response reflects CANCELED; the worker thread sees the terminal
+                // state and won't overwrite it. If the run already finished, leave
+                // the terminal state as-is.
+                entry
+                    .cancel
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                if !is_terminal(entry.task.status.state) {
+                    let cid = entry.task.context_id.clone();
+                    let msg = Message::agent_text("run canceled", &params.id, &cid);
+                    entry.task.status.state = TaskState::Canceled;
+                    entry.task.status.message = Some(msg.clone());
+                    entry.task.status.timestamp = Some(now_rfc3339());
+                    entry.task.history.push(msg);
+                }
+                rpc_result(
+                    &req.id,
+                    serde_json::to_value(&entry.task).unwrap_or(serde_json::Value::Null),
+                )
+            }
             None => rpc_error(
                 &req.id,
                 TASK_NOT_FOUND,
@@ -571,48 +669,99 @@ mod tests {
         assert_eq!(err["error"]["code"], error::METHOD_NOT_FOUND);
     }
 
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    /// Poll tasks/get until the task reaches a terminal state (async runs finish
+    /// on a background thread). Fails fast rather than hanging.
+    fn poll_terminal(svc: &A2aService, id: &str) -> serde_json::Value {
+        for _ in 0..400 {
+            let r = svc.handle(&format!(
+                r#"{{"jsonrpc":"2.0","id":9,"method":"tasks/get","params":{{"id":"{id}"}}}}"#
+            ));
+            let state = r["result"]["status"]["state"].as_str().unwrap_or("");
+            if matches!(
+                state,
+                "TASK_STATE_COMPLETED" | "TASK_STATE_FAILED" | "TASK_STATE_CANCELED"
+            ) {
+                return r;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("task {id} never reached a terminal state");
+    }
+
     #[test]
-    fn message_send_runs_and_tasks_get_returns_it() {
-        let svc = A2aService::new(|prompt: &str| Ok(format!("echo: {prompt}")));
+    fn message_send_is_async_then_completes() {
+        let svc = A2aService::new(|prompt: &str, _cancel| Ok(format!("echo: {prompt}")));
         let resp = svc.handle(
             r#"{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"hello world"}]}}}"#,
         );
+        // message/send answers immediately with a WORKING task
         assert_eq!(resp["id"], 1);
-        let task = &resp["result"];
-        assert_eq!(task["status"]["state"], "TASK_STATE_COMPLETED");
-        assert_eq!(task["status"]["message"]["role"], "ROLE_AGENT");
-        assert!(task["status"]["message"]["parts"][0]["text"]
+        assert_eq!(resp["result"]["status"]["state"], "TASK_STATE_WORKING");
+        let tid = resp["result"]["id"].as_str().unwrap().to_string();
+
+        // the background run then completes it
+        let done = poll_terminal(&svc, &tid);
+        assert_eq!(done["result"]["id"], tid);
+        assert_eq!(done["result"]["status"]["state"], "TASK_STATE_COMPLETED");
+        assert_eq!(done["result"]["status"]["message"]["role"], "ROLE_AGENT");
+        assert!(done["result"]["status"]["message"]["parts"][0]["text"]
             .as_str()
             .unwrap()
             .contains("echo: hello world"));
-        // history carries the user turn + the agent reply
-        assert_eq!(task["history"].as_array().unwrap().len(), 2);
-        let tid = task["id"].as_str().unwrap().to_string();
-
-        // tasks/get returns the same terminal task
-        let got = svc.handle(&format!(
-            r#"{{"jsonrpc":"2.0","id":2,"method":"tasks/get","params":{{"id":"{tid}"}}}}"#
-        ));
-        assert_eq!(got["result"]["id"], tid);
-        assert_eq!(got["result"]["status"]["state"], "TASK_STATE_COMPLETED");
+        assert_eq!(done["result"]["history"].as_array().unwrap().len(), 2);
     }
 
     #[test]
     fn runner_failure_yields_failed_task() {
-        let svc = A2aService::new(|_| Err(anyhow::anyhow!("boom")));
+        let svc = A2aService::new(|_, _| Err(anyhow::anyhow!("boom")));
         let resp = svc.handle(
             r#"{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"messageId":"m","role":"ROLE_USER","parts":[{"text":"x"}]}}}"#,
         );
-        assert_eq!(resp["result"]["status"]["state"], "TASK_STATE_FAILED");
-        assert!(resp["result"]["status"]["message"]["parts"][0]["text"]
+        let tid = resp["result"]["id"].as_str().unwrap().to_string();
+        let done = poll_terminal(&svc, &tid);
+        assert_eq!(done["result"]["status"]["state"], "TASK_STATE_FAILED");
+        assert!(done["result"]["status"]["message"]["parts"][0]["text"]
             .as_str()
             .unwrap()
             .contains("boom"));
     }
 
     #[test]
+    fn tasks_cancel_transitions_to_canceled() {
+        // A runner that blocks until it is asked to cancel.
+        let svc = A2aService::new(|_prompt: &str, cancel: Arc<AtomicBool>| {
+            for _ in 0..5_000 {
+                if cancel.load(Ordering::Relaxed) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            Ok("stopped".to_string())
+        });
+        let resp = svc.handle(
+            r#"{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"messageId":"m","role":"ROLE_USER","parts":[{"text":"a long task"}]}}}"#,
+        );
+        assert_eq!(resp["result"]["status"]["state"], "TASK_STATE_WORKING");
+        let tid = resp["result"]["id"].as_str().unwrap().to_string();
+
+        // cancel returns the task already CANCELED
+        let c = svc.handle(&format!(
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tasks/cancel","params":{{"id":"{tid}"}}}}"#
+        ));
+        assert_eq!(c["result"]["status"]["state"], "TASK_STATE_CANCELED");
+
+        // and it stays CANCELED — the worker thread must not overwrite it
+        let done = poll_terminal(&svc, &tid);
+        assert_eq!(done["result"]["status"]["state"], "TASK_STATE_CANCELED");
+    }
+
+    #[test]
     fn error_paths_are_well_formed_jsonrpc() {
-        let svc = A2aService::new(|_| Ok("x".to_string()));
+        let svc = A2aService::new(|_, _| Ok("x".to_string()));
         // empty text
         let r1 = svc.handle(
             r#"{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"messageId":"m","role":"ROLE_USER","parts":[]}}}"#,
@@ -621,10 +770,13 @@ mod tests {
         // unknown method
         let r2 = svc.handle(r#"{"jsonrpc":"2.0","id":2,"method":"foo/bar","params":{}}"#);
         assert_eq!(r2["error"]["code"], error::METHOD_NOT_FOUND);
-        // unknown task
+        // unknown task on get and cancel
         let r3 =
             svc.handle(r#"{"jsonrpc":"2.0","id":3,"method":"tasks/get","params":{"id":"nope"}}"#);
         assert_eq!(r3["error"]["code"], TASK_NOT_FOUND);
+        let r3c = svc
+            .handle(r#"{"jsonrpc":"2.0","id":4,"method":"tasks/cancel","params":{"id":"nope"}}"#);
+        assert_eq!(r3c["error"]["code"], TASK_NOT_FOUND);
         // not JSON at all
         let r4 = svc.handle("not json");
         assert_eq!(r4["error"]["code"], error::INVALID_REQUEST);
