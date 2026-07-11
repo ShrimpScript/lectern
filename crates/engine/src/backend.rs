@@ -314,6 +314,31 @@ pub fn push_steer(steer: &Steer, msg: impl Into<String>) {
     }
 }
 
+/// Whether opt-in mid-turn steering into a *live backend* is requested
+/// (`LECTERN_STEER` truthy). Off by default. The real-backend live path is gated
+/// on this AND a steer queue being present; see docs/mid-turn-steering-design.md.
+pub fn steer_enabled() -> bool {
+    std::env::var("LECTERN_STEER")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+/// Build the single-line NDJSON `user` message Claude Code accepts on stdin under
+/// `--input-format stream-json`. Using serde guarantees valid JSON + escaping. The
+/// exact envelope is the SDK-standard shape; it is an open documentation gap
+/// (anthropics/claude-code#24594), so this is validated by tests here and must be
+/// re-checked against the CLI before the live path is enabled.
+pub fn steer_message_json(text: &str) -> String {
+    serde_json::json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [ { "type": "text", "text": text } ]
+        }
+    })
+    .to_string()
+}
+
 pub struct MockBackend {
     pub fast: bool,
     /// Optional mid-turn steering queue. The mock drains it at a boundary and
@@ -485,6 +510,10 @@ pub struct ClaudeCodeBackend {
     pub extra_args: Vec<String>,
     /// When set true mid-run, the supervised `claude` process is killed (Stop / Esc).
     pub cancel: Option<Arc<AtomicBool>>,
+    /// Optional mid-turn steering queue (mirrors `cancel`). Only consulted when the
+    /// live steering path is opted into (`LECTERN_STEER`); the live path itself is
+    /// specified but not yet enabled — see docs/mid-turn-steering-design.md.
+    pub steer: Option<Steer>,
 }
 
 impl ClaudeCodeBackend {
@@ -496,6 +525,7 @@ impl ClaudeCodeBackend {
             skip_permissions: false,
             extra_args: Vec::new(),
             cancel: None,
+            steer: None,
         }
     }
 
@@ -555,6 +585,19 @@ impl Backend for ClaudeCodeBackend {
         // Inject Lectern's recalled memory + matched skills so the agent starts with
         // the right context (otherwise the brain is computed but never reaches Claude).
         let full_prompt = compose_prompt(ctx, prompt, true);
+
+        // Mid-turn steering (opt-in) is specified but the live stdin path is not yet
+        // enabled here — it can't be verified without spending tokens and the CLI's
+        // stream-json input envelope is an open documentation gap. When requested we
+        // note it and fall through to the normal one-shot run, unchanged. See
+        // docs/mid-turn-steering-design.md.
+        if self.steer.is_some() && steer_enabled() {
+            crate::diag::log(
+                "backend",
+                "mid-turn steering requested (LECTERN_STEER); the Claude stream-json input path \
+                 is specified but not enabled in this build — running one-shot",
+            );
+        }
 
         let mut cmd = maybe_sandbox(&bin, ctx)?;
         cmd.arg("-p")
@@ -1914,6 +1957,20 @@ mod tests {
         assert!(!collect_messages(&plain)
             .iter()
             .any(|t| t.contains("steering:")));
+    }
+
+    #[test]
+    fn steer_message_json_is_a_valid_single_line_user_message() {
+        let text = "focus on \"tests\"\nand the parser";
+        let line = steer_message_json(text);
+        // NDJSON: a single line (the value's newline is escaped, not literal)
+        assert!(!line.contains('\n'));
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v["type"], "user");
+        assert_eq!(v["message"]["role"], "user");
+        assert_eq!(v["message"]["content"][0]["type"], "text");
+        // round-trips exactly, quotes and newline preserved
+        assert_eq!(v["message"]["content"][0]["text"], text);
     }
 
     #[test]
