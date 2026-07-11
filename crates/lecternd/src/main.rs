@@ -639,14 +639,16 @@ mod a2a {
     /// a remote peer's task returns proposed changes, it does not write the disk.
     /// The backend is `auto` by default; `LECTERN_A2A_BACKEND=mock` forces the
     /// no-cost mock (used for end-to-end tests).
-    fn run_turn(backend_id: &str, prompt: &str) -> anyhow::Result<String> {
+    fn run_turn(
+        backend_id: &str,
+        prompt: &str,
+        cancel: Arc<std::sync::atomic::AtomicBool>,
+    ) -> anyhow::Result<String> {
         use lectern_engine::event::AgentEvent as E;
         use std::path::Path;
-        use std::sync::atomic::AtomicBool;
 
         let engine = super::Engine::open_default()?;
         let ws = engine.open_workspace(Path::new("."))?;
-        let cancel = Arc::new(AtomicBool::new(false));
         let backend = super::build_backend(backend_id, false, None, cancel);
         let mut reply = String::new();
         let res = engine.run(
@@ -709,8 +711,8 @@ mod a2a {
         let card_json = serde_json::to_string(&card).unwrap_or_default();
         let backend_id =
             std::env::var("LECTERN_A2A_BACKEND").unwrap_or_else(|_| "auto".to_string());
-        let service = Arc::new(A2aService::new(move |prompt: &str| {
-            run_turn(&backend_id, prompt)
+        let service = Arc::new(A2aService::new(move |prompt: &str, cancel| {
+            run_turn(&backend_id, prompt, cancel)
         }));
         println!("a2a: endpoint on http://{addr} (loopback-only, opt-in)");
 
