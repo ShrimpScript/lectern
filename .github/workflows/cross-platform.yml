@@ -83,14 +83,16 @@ jobs:
       # otherwise Win/Mac compile but skip bundling and upload nothing.
       # Disable updater artifacts here: those require the signing key (kept off CI), and
       # the auto-updater is Linux-only for now — Win/Mac ship as plain installers.
+      # tauri.conf.ci.json turns off updater artifacts (a config file, not an inline JSON
+      # arg, so the quoting works on Windows' shell too).
       - name: Tauri build (unsigned, Windows)
         if: runner.os == 'Windows'
         working-directory: apps/desktop
-        run: npx tauri build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+        run: npx tauri build --bundles nsis --config src-tauri/tauri.conf.ci.json
       - name: Tauri build (unsigned, macOS)
         if: runner.os == 'macOS'
         working-directory: apps/desktop
-        run: npx tauri build --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false}}'
+        run: npx tauri build --bundles dmg --config src-tauri/tauri.conf.ci.json
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
