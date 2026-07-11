@@ -47,6 +47,11 @@ and adds what they don't have on their own:
   other agents on your machine: the daemon can serve Lectern as a local A2A agent,
   and the Conductor can delegate a step to a local A2A peer. Off by default,
   loopback-only, opt-in.
+- **Opt-in run sandbox** — on Linux, set `LECTERN_SANDBOX=1` to run an agent inside
+  a bubblewrap sandbox that confines writes to the workspace (the rest of the
+  filesystem is read-only), so an injected instruction stays a bad transcript
+  instead of an escape; `LECTERN_SANDBOX_NET=off` additionally cuts the network.
+  Off by default.
 
 ## Repo layout
 ```

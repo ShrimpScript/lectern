@@ -702,6 +702,13 @@ fn pick_backend(name: &str, flags: &RunFlags) -> Result<Box<dyn Backend>> {
     }
 }
 
+/// Whether the opt-in run sandbox is enabled in this environment (`LECTERN_SANDBOX`).
+fn sandbox_env_on() -> bool {
+    std::env::var("LECTERN_SANDBOX")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn cmd_run(
     prompt: String,
@@ -753,6 +760,29 @@ fn cmd_run(
             "plan · proposes changes, edits nothing (add --apply to write)"
         };
         println!("{}", dim(&format!("  Claude Code mode: {mode}")));
+    }
+    if sandbox_env_on() {
+        let note = if lectern_engine::sandbox::available() {
+            let isolated = std::env::var("LECTERN_SANDBOX_NET")
+                .map(|v| {
+                    matches!(
+                        v.trim().to_ascii_lowercase().as_str(),
+                        "off" | "0" | "none" | "no" | "false"
+                    )
+                })
+                .unwrap_or(false);
+            format!(
+                "  sandbox: on · workspace-confined · {}",
+                if isolated {
+                    "network isolated"
+                } else {
+                    "network kept"
+                }
+            )
+        } else {
+            "  sandbox: requested but bubblewrap isn't installed — this run will error".to_string()
+        };
+        println!("{}", dim(&note));
     }
     println!();
 
@@ -1516,6 +1546,28 @@ fn cmd_doctor() -> Result<()> {
         println!(
             "  {DIM}○{RESET} lecternd not running {}",
             dim("(optional — schedules also run via `lectern schedule run-due`)")
+        );
+    }
+
+    // Opt-in run sandbox (bubblewrap) — confines --apply/--yolo runs to the workspace.
+    if lectern_engine::sandbox::available() {
+        if sandbox_env_on() {
+            println!(
+                "  {GREEN}✓{RESET} run sandbox {}",
+                dim("(bubblewrap · LECTERN_SANDBOX on — runs are workspace-confined)")
+            );
+        } else {
+            println!(
+                "  {GREEN}✓{RESET} run sandbox available {}",
+                dim("(bubblewrap · set LECTERN_SANDBOX=1 to confine runs)")
+            );
+        }
+    } else {
+        println!(
+            "  {DIM}○{RESET} run sandbox {}",
+            dim(
+                "(bubblewrap not installed — `sudo apt install bubblewrap` to use LECTERN_SANDBOX)"
+            )
         );
     }
 
