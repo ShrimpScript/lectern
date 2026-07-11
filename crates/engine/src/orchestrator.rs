@@ -97,6 +97,21 @@ pub fn parse_plan(text: &str, fallback_task: &str) -> Vec<ConductorStep> {
     }]
 }
 
+/// Pick the local A2A peer a Conductor step should be delegated to. Delegation is
+/// opt-in: `LECTERN_A2A_DELEGATE` names a configured peer (`delegate_env`), and only
+/// an exact name match delegates. Unset, empty, or an unknown name → `None`, meaning
+/// the step runs locally exactly as before.
+pub fn select_delegate_peer(
+    delegate_env: Option<&str>,
+    peers: &[crate::a2a::A2aPeer],
+) -> Option<crate::a2a::A2aPeer> {
+    let name = delegate_env?.trim();
+    if name.is_empty() {
+        return None;
+    }
+    peers.iter().find(|p| p.name == name).cloned()
+}
+
 /// Pick a CROSS-PROVIDER reviewer for a step that ran on `step_backend` (Polly's
 /// cross-vendor review): a Claude step is reviewed by Gemini and vice-versa. Returns
 /// (backend_id, model, label).
@@ -288,6 +303,30 @@ mod tests {
         assert!(should_review("code", false));
         assert!(should_review("research", true)); // produced changes → review anyway
         assert!(!should_review("research", false));
+    }
+
+    #[test]
+    fn a2a_delegate_selection() {
+        let peers = vec![
+            crate::a2a::A2aPeer {
+                name: "alpha".into(),
+                url: "http://127.0.0.1:1".into(),
+                token: None,
+            },
+            crate::a2a::A2aPeer {
+                name: "beta".into(),
+                url: "http://127.0.0.1:2".into(),
+                token: Some("t".into()),
+            },
+        ];
+        // opt-in only: unset / empty / unknown → no delegation
+        assert!(select_delegate_peer(None, &peers).is_none());
+        assert!(select_delegate_peer(Some("  "), &peers).is_none());
+        assert!(select_delegate_peer(Some("gamma"), &peers).is_none());
+        // exact name match delegates
+        let chosen = select_delegate_peer(Some("beta"), &peers).unwrap();
+        assert_eq!(chosen.url, "http://127.0.0.1:2");
+        assert_eq!(chosen.token.as_deref(), Some("t"));
     }
 
     #[test]
