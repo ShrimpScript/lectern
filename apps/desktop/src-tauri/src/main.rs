@@ -73,14 +73,6 @@ struct SkillInfo {
     paused: bool,
 }
 
-/// Cloud account status for the Profile screen.
-#[derive(serde::Serialize)]
-struct AccountInfo {
-    signed_in: bool,
-    base_url: Option<String>,
-    plan: Option<String>,
-}
-
 /// A scheduled agent run (for the Schedule screen).
 #[derive(serde::Serialize)]
 struct ScheduleInfo {
@@ -1841,37 +1833,6 @@ async fn save_recorded_skill(path: String, name: String, steps: Vec<String>)-> R
         .map_err(|e| e.to_string())?
 }
 
-/// Cloud sign-in status + plan (best-effort; offline-tolerant). Runs off the UI thread.
-#[tauri::command]
-async fn account() -> AccountInfo {
-    tauri::async_runtime::spawn_blocking(|| match lectern_engine::cloud::load_auth() {
-        Some(auth) => {
-            let plan = lectern_engine::cloud::get_entitlements(&auth)
-                .ok()
-                .and_then(|v| {
-                    v.pointer("/token/plan")
-                        .and_then(|p| p.as_str())
-                        .map(|s| s.to_string())
-                });
-            AccountInfo {
-                signed_in: true,
-                base_url: Some(auth.base_url),
-                plan,
-            }
-        }
-        None => AccountInfo {
-            signed_in: false,
-            base_url: None,
-            plan: None,
-        },
-    })
-    .await
-    .unwrap_or(AccountInfo {
-        signed_in: false,
-        base_url: None,
-        plan: None,
-    })
-}
 
 /// Open a native multi-file picker (zenity, then kdialog) — for the 📎 attach button.
 /// Returns absolute paths; images go to vision, other files are referenced by path.
@@ -2641,12 +2602,6 @@ async fn run_session(
                 },
             )
             .map_err(|e| e.to_string())?;
-        // Best-effort content-free usage telemetry (counts only; no-op if signed out).
-        engine.report_usage(
-            be.id(),
-            result.usage.input_tokens,
-            result.usage.output_tokens,
-        );
         Ok::<RunSummary, String>(RunSummary {
             session_id: result.session_id,
             changes: result.changes.len(),
@@ -2695,11 +2650,6 @@ async fn run_conductor_session(
         let result = engine
             .run_conductor(&ws, &prompt, &make, true, &mut sink)
             .map_err(|e| e.to_string())?;
-        engine.report_usage(
-            "conductor",
-            result.usage.input_tokens,
-            result.usage.output_tokens,
-        );
         Ok::<RunSummary, String>(RunSummary {
             session_id: result.session_id,
             changes: result.changes.len(),
@@ -3055,7 +3005,6 @@ fn main() {
             stop_recording,
             recording_active,
             save_recorded_skill,
-            account,
             pick_folder,
             app_version,
             get_prefs,

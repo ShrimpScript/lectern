@@ -4,7 +4,7 @@ import { AntigravityIcon, ClaudeIcon, providerIcon } from "./BrandIcons";
 import { Onboarding } from "./Onboarding";
 import {
   Paperclip, Mic, ArrowUp, ChevronDown, Home, MessageSquare, Sparkles,
-  LayoutGrid, Brain as BrainGlyph, Calendar, SlidersHorizontal, User,
+  LayoutGrid, Brain as BrainGlyph, Calendar, SlidersHorizontal,
   Search, Folder, PanelLeftClose, PanelLeft, PanelRight, PanelRightClose,
   SquarePen, GitBranch, BarChart3, MoreHorizontal, X, Globe, Code,
   ChevronLeft, ChevronRight, AlertTriangle, Copy, Check, RotateCcw,
@@ -61,7 +61,6 @@ type FileEntry = { name: string; dir: boolean };
 export type SkillInfo = { name: string; description: string; triggers: string[]; uses: number; steps: string[]; rules: string[]; gui: boolean; ok: number; err: number; paused: boolean };
 export type RegistryEntry = { id: string; name: string; description: string; triggers: string[]; author: string | null; version: number; kind: string; sha256?: string | null; official?: boolean; external?: boolean; publisher?: string | null; source_url?: string | null };
 export type SkillBundle = { name: string; description: string; triggers: string[]; rules: string[]; steps: string[]; author: string | null; version: number; docs?: string | null };
-type AccountInfo = { signed_in: boolean; base_url: string | null; plan: string | null };
 type PastedImage = { path: string; url: string };
 
 type Session = {
@@ -89,7 +88,7 @@ type Session = {
   updatedAt?: number;
 };
 
-type Screen = "chat" | "agent" | "marketplace" | "brain" | "usage" | "schedule" | "settings" | "profile" | "connect";
+type Screen = "chat" | "agent" | "marketplace" | "brain" | "usage" | "schedule" | "settings" | "connect";
 export type ThemeName = "dark" | "light";
 export const THEME_VAR_WHITELIST = ["--bg", "--panel", "--panel2", "--elev", "--bd", "--bd2", "--fg", "--fg2", "--fg3", "--hov", "--btn", "--btnfg", "--backdrop", "--accent", "--chrome", "--tree"];
 export type Prefs = { theme: ThemeName; default_backend: string; default_model: string; default_apply: boolean; onboarded: boolean; clean_output: boolean; custom_theme: string | null; whats_new_seen?: string | null };
@@ -124,7 +123,6 @@ const NAV_PRIMARY: { id: Screen; label: string; icon: string }[] = [
 const NAV_ADVANCED: { id: Screen; label: string; icon: string }[] = [
   { id: "marketplace", label: "Hub", icon: "market" },
   { id: "schedule", label: "Schedule", icon: "schedule" },
-  { id: "profile", label: "Profile", icon: "profile" },
 ];
 
 export const ctrl: React.CSSProperties = { height: 30, boxSizing: "border-box", fontSize: 12, lineHeight: "28px", color: "var(--fg)", background: "var(--bg)", border: "1px solid var(--bd)", borderRadius: 8, padding: "0 10px", outline: "none" };
@@ -750,7 +748,6 @@ export function App() {
           {screen === "connect" && <Suspense fallback={null}><Connect mcp={mcp} onRefresh={loadMcp} onBack={() => navTo("settings")} /></Suspense>}
           {screen === "schedule" && <Suspense fallback={<div style={{ maxWidth: 980, margin: "0 auto", padding: 40 }}><div className="lectern-skel" style={{ height: 30, width: 180, marginBottom: 20 }} /><div className="lectern-skel" style={{ height: 140 }} /></div>}><Schedule path={active.path} /></Suspense>}
           {screen === "settings" && <Suspense fallback={<div style={{ maxWidth: 680, margin: "0 auto", padding: 44 }}><div className="lectern-skel" style={{ height: 30, width: 160, marginBottom: 24 }} /><div className="lectern-skel" style={{ height: 180 }} /></div>}><Settings onBrowse={() => navTo("connect")} backends={backends} models={models} prefs={prefs} mcp={mcp} onMcp={loadMcp} onPrefs={savePrefs} onRecheck={recheck} /></Suspense>}
-          {screen === "profile" && <Profile onSignOutHint={() => {}} />}
         </div>
       </div>
     </div>
@@ -2165,35 +2162,6 @@ function Composer({ session, isClaude, personalAgent, skillsVersion, backends, m
   );
 }
 
-// ── Profile ──────────────────────────────────────────────────────────────────
-function Profile({ }: { onSignOutHint: () => void }) {
-  const [acct, setAcct] = useState<AccountInfo | null>(null);
-  useEffect(() => { invoke<AccountInfo>("account").then(setAcct).catch(() => setAcct({ signed_in: false, base_url: null, plan: null })); }, []);
-  return (
-    <Scroll>
-      <div style={{ maxWidth: 620, margin: "0 auto", padding: "44px 40px", display: "flex", flexDirection: "column", gap: 24 }}>
-        <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-0.02em" }}>Profile</div>
-        {acct === null ? (
-          <div className="mono" style={{ fontSize: 12, color: "var(--fg3)" }}>Loading…</div>
-        ) : acct.signed_in ? (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <div style={{ width: 56, height: 56, borderRadius: "50%", border: "1px solid var(--bd)", background: "var(--panel2)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 18 }}>L</div>
-              <div><div style={{ fontSize: 20, fontWeight: 800 }}>Signed in</div><div className="mono" style={{ fontSize: 12, color: "var(--fg3)", marginTop: 2 }}>{acct.plan ? `${acct.plan} plan · ` : ""}{acct.base_url}</div></div>
-            </div>
-            <div className="mono" style={{ fontSize: 12, color: "var(--fg3)", lineHeight: 1.6 }}>Manage your plan, usage, and billing on the web dashboard. Sign out with <span style={{ color: "var(--fg)" }}>lectern logout</span>.</div>
-          </>
-        ) : (
-          <div style={{ border: "1px solid var(--bd)", borderRadius: 13, background: "var(--panel)", padding: "30px 22px", textAlign: "center" }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>Not signed in</div>
-            <div style={{ fontSize: 13.5, color: "var(--fg2)", marginTop: 8, lineHeight: 1.6, maxWidth: 420, margin: "8px auto 0" }}>Sign in to sync skills and see usage across devices. Run <span className="mono" style={{ color: "var(--fg)" }}>lectern login</span> in your terminal, then reopen this screen.</div>
-          </div>
-        )}
-      </div>
-    </Scroll>
-  );
-}
-
 // ── shared bits ──────────────────────────────────────────────────────────────
 export function Scroll({ children }: { children: React.ReactNode }) {
   return <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>{children}</div>;
@@ -2210,7 +2178,7 @@ const ICONS: Record<string, LucideIcon> = {
   paperclip: Paperclip, mic: Mic, send: ArrowUp, chevron: ChevronDown,
   home: Home, chat: MessageSquare, agent: Sparkles, market: LayoutGrid, usage: BarChart3,
   brain: BrainGlyph, schedule: Calendar, settings: SlidersHorizontal,
-  profile: User, search: Search, folder: Folder, collapse: PanelLeftClose,
+  search: Search, folder: Folder, collapse: PanelLeftClose,
   panelLeft: PanelLeft, panelLeftClose: PanelLeftClose, panelRight: PanelRight,
   panelRightClose: PanelRightClose, newsession: SquarePen, branch: GitBranch,
   more: MoreHorizontal, x: X,
