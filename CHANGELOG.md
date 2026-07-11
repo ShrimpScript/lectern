@@ -11,6 +11,11 @@ Lectern follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 ## [Unreleased]
 
 ### Added
+- **Mid-turn steering (foundation).** An engine steering channel can deliver a message to a
+  *running* turn at a safe boundary — demonstrated end-to-end with the mock backend. The Claude
+  Code live path is opt-in (`LECTERN_STEER`) and its components are in place (message format,
+  gating); the full stream-json stdin wiring is deferred pending live verification against the CLI
+  (its input format is an open documentation gap). See `docs/mid-turn-steering-design.md`.
 - **Skills are scanned on import.** Importing a skill — including an external `SKILL.md` from the
   ecosystem — now runs the static red-flag scan (destructive shell, secret exfiltration,
   prompt-injection markers) and surfaces its findings. By default it **warns and still imports**
