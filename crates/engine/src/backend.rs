@@ -188,6 +188,58 @@ pub struct TurnOutcome {
     pub usage: Usage,
 }
 
+/// Whether the opt-in run sandbox is requested (`LECTERN_SANDBOX` truthy). Off by
+/// default — see docs/run-sandbox-design.md.
+fn sandbox_enabled() -> bool {
+    std::env::var("LECTERN_SANDBOX")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+/// Build the base `Command` for spawning a backend `bin`, applying the bubblewrap
+/// sandbox when requested. Split from the env/probe lookups (`sandbox_on` = the
+/// user asked; `sandbox_ok` = bwrap is usable) so it is deterministically testable.
+/// When the sandbox is off this is exactly `Command::new(bin)`; when it is on but
+/// bwrap is unavailable it errors rather than running unconfined.
+fn build_backend_command(
+    bin: &str,
+    ctx: &TurnContext,
+    sandbox_on: bool,
+    sandbox_ok: bool,
+) -> Result<Command> {
+    if !sandbox_on {
+        return Ok(Command::new(bin));
+    }
+    if !sandbox_ok {
+        anyhow::bail!(
+            "run sandbox requested (LECTERN_SANDBOX) but bubblewrap isn't available — install it \
+             (e.g. `sudo apt install bubblewrap`) or unset LECTERN_SANDBOX"
+        );
+    }
+    // Expose, read-only, what the backend needs to run: its own binary's directory
+    // (npm/nvm/homebrew installs live outside /usr) and the provider auth/config
+    // dirs. Full per-backend auth verification is a later slice.
+    let mut extra: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(dir) = Path::new(bin).parent() {
+        extra.push(dir.to_path_buf());
+    }
+    let home = crate::home_dir();
+    for sub in [".claude", ".config", ".local/share"] {
+        extra.push(Path::new(&home).join(sub));
+    }
+    let policy = crate::sandbox::SandboxPolicy {
+        workspace: ctx.workspace_root.to_path_buf(),
+        extra_ro_binds: extra,
+        net: true,
+    };
+    Ok(crate::sandbox::wrap(bin, &policy))
+}
+
+/// The base `Command` for a backend spawn, sandboxed per the opt-in (default off).
+fn maybe_sandbox(bin: &str, ctx: &TurnContext) -> Result<Command> {
+    build_backend_command(bin, ctx, sandbox_enabled(), crate::sandbox::available())
+}
+
 /// Object-safe so the engine can hold `Box<dyn Backend>` and route between them.
 pub trait Backend {
     fn id(&self) -> &str;
@@ -435,7 +487,7 @@ impl Backend for ClaudeCodeBackend {
         // the right context (otherwise the brain is computed but never reaches Claude).
         let full_prompt = compose_prompt(ctx, prompt, true);
 
-        let mut cmd = Command::new(&bin);
+        let mut cmd = maybe_sandbox(&bin, ctx)?;
         cmd.arg("-p")
             .arg(&full_prompt)
             .arg("--output-format")
@@ -1167,7 +1219,7 @@ impl Backend for AntigravityBackend {
         // Same brain injection as Claude Code: lead with recalled memory + matched skills.
         let full_prompt = compose_prompt(ctx, prompt, false);
 
-        let mut cmd = Command::new(&bin);
+        let mut cmd = maybe_sandbox(&bin, ctx)?;
         cmd.arg("-p")
             .arg(&full_prompt)
             .arg("--add-dir")
@@ -1317,7 +1369,7 @@ impl Backend for OpenCodeBackend {
         // Same brain injection as the other harnesses.
         let full_prompt = compose_prompt(ctx, prompt, false);
 
-        let mut cmd = Command::new(&bin);
+        let mut cmd = maybe_sandbox(&bin, ctx)?;
         cmd.arg("run")
             .arg("--format")
             .arg("json")
@@ -1747,6 +1799,75 @@ pub fn resolve_claude(binary: &str) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn tctx(ws: &Path) -> TurnContext<'_> {
+        TurnContext {
+            workspace_root: ws,
+            recalls: vec![],
+            skills: vec![],
+            system: None,
+            apply: false,
+        }
+    }
+
+    #[test]
+    fn sandbox_off_is_a_plain_command() {
+        let ws = Path::new("/home/u/proj");
+        let cmd = build_backend_command("claude", &tctx(ws), false, false).unwrap();
+        assert_eq!(cmd.get_program(), "claude");
+        assert_eq!(cmd.get_args().count(), 0); // caller appends the real args
+    }
+
+    #[test]
+    fn sandbox_requested_without_bwrap_errors() {
+        let ws = Path::new("/home/u/proj");
+        let err = build_backend_command("claude", &tctx(ws), true, false).unwrap_err();
+        assert!(err.to_string().contains("bubblewrap"));
+    }
+
+    #[test]
+    #[ignore = "requires bubblewrap + user namespaces; run locally with `--ignored`"]
+    fn wired_sandbox_actually_confines_writes() {
+        // Exercise the real wired path: a synthetic /bin/sh under the sandbox can
+        // write inside the workspace (persisting to the host) but not outside it.
+        let dir = std::env::temp_dir().join(format!("lectern-sbx-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let escape = Path::new("/etc/lectern_sbx_escape_test");
+        let status = build_backend_command("/bin/sh", &tctx(&dir), true, true)
+            .unwrap()
+            .arg("-c")
+            .arg("touch inside.txt; touch /etc/lectern_sbx_escape_test 2>/dev/null; true")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(
+            dir.join("inside.txt").exists(),
+            "a write inside the workspace should persist to the host"
+        );
+        assert!(
+            !escape.exists(),
+            "a write outside the workspace must be denied"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sandbox_on_wraps_in_bwrap_with_the_workspace_bound() {
+        let ws = Path::new("/home/u/proj");
+        let cmd = build_backend_command("/usr/bin/claude", &tctx(ws), true, true).unwrap();
+        assert_eq!(cmd.get_program(), "bwrap");
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert!(args
+            .windows(3)
+            .any(|w| w == ["--bind", "/home/u/proj", "/home/u/proj"]));
+        // the backend binary is handed off last, after `--`
+        let dd = args.iter().position(|a| a == "--").expect("`--` present");
+        assert_eq!(args[dd + 1], "/usr/bin/claude");
+        assert_eq!(dd + 2, args.len());
+    }
 
     #[test]
     fn suggest_commit_message_infers_type_scope_subject() {
