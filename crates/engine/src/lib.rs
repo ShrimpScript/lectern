@@ -2360,6 +2360,79 @@ fn classified_route(
     crate::route::classifier_route(&out).unwrap_or(base)
 }
 
+/// The peer this Conductor run delegates steps to, if any. Delegation is opt-in via
+/// `LECTERN_A2A_DELEGATE` (a configured peer name); unset → `None`, and the peer file
+/// is not even read, so the default path is unchanged.
+fn a2a_delegate_target() -> Option<crate::a2a::A2aPeer> {
+    let env = std::env::var("LECTERN_A2A_DELEGATE").ok();
+    let env = env.as_deref().filter(|s| !s.trim().is_empty())?;
+    crate::orchestrator::select_delegate_peer(Some(env), &crate::a2a::load_peers())
+}
+
+/// Delegate one Conductor step to a local A2A peer instead of a local backend: send
+/// the step, poll to completion, and fold the peer's reply back as the step summary
+/// (which the Conductor threads into `prior` for later steps). The peer does the work
+/// on its side, so a delegated step produces no local file changes.
+fn delegate_step_via_a2a(
+    peer: &crate::a2a::A2aPeer,
+    idx: usize,
+    n: usize,
+    step: &crate::orchestrator::ConductorStep,
+    overall: &str,
+    prior: &str,
+    sink: &mut dyn FnMut(AgentEvent),
+) -> Result<StepRun> {
+    sink(AgentEvent::ModelRouted {
+        model: format!("A2A · {}", peer.name),
+        reason: format!(
+            "step {}/{}: {} — delegated to local A2A peer",
+            idx + 1,
+            n,
+            step.title
+        ),
+    });
+    crate::diag::log(
+        "conductor",
+        &format!(
+            "step {}/{} → A2A peer {} ({})",
+            idx + 1,
+            n,
+            peer.name,
+            peer.url
+        ),
+    );
+    let step_prompt = format!(
+        "You are step {}/{} of a larger task — do ONLY this step, then stop.\nOverall task: {overall}{prior}\nThis step: {} — {}",
+        idx + 1,
+        n,
+        step.title,
+        step.detail
+    );
+    let task =
+        crate::a2a::A2aClient::new().delegate(&peer.url, peer.token.as_deref(), &step_prompt)?;
+    let reply = task
+        .status
+        .message
+        .as_ref()
+        .map(|m| crate::a2a::Part::joined_text(&m.parts))
+        .unwrap_or_default();
+    if !reply.is_empty() {
+        sink(AgentEvent::Message {
+            text: reply.clone(),
+        });
+    }
+    Ok(StepRun {
+        idx,
+        backend_id: format!("a2a:{}", peer.name),
+        summary: reply,
+        outcome: TurnOutcome {
+            changes: Vec::new(),
+            usage: Usage::default(),
+        },
+        events: Vec::new(),
+    })
+}
+
 /// Run one Conductor sub-task: route it, hand it to the chosen model, capture its prose.
 /// No `&self`, so it can run inside a worktree thread.
 #[allow(clippy::too_many_arguments)]
@@ -2379,6 +2452,11 @@ fn run_conductor_step(
     agy_ok: bool,
     sink: &mut dyn FnMut(AgentEvent),
 ) -> Result<StepRun> {
+    // Opt-in: offload this step to a configured local A2A peer (LECTERN_A2A_DELEGATE).
+    // Default (unset) falls straight through to local routing, unchanged.
+    if let Some(peer) = a2a_delegate_target() {
+        return delegate_step_via_a2a(&peer, idx, n, step, overall, prior, sink);
+    }
     // Route the sub-task, then make the choice runnable on this machine: if the preferred
     // provider isn't connected, available_route remaps to the best available one.
     let r = crate::route::available_route(
@@ -3261,5 +3339,92 @@ mod tests {
         assert!(!skill.body.steps.is_empty());
         let matched = engine.match_skills(&ws, "please add a settings page now", 3);
         assert!(matched.iter().any(|s| s.name == "add-settings"));
+    }
+
+    #[test]
+    fn conductor_delegates_a_step_to_an_a2a_peer() {
+        use crate::a2a::{Message, Task, TaskState, TaskStatus};
+        use crate::event::AgentEvent;
+        use crate::orchestrator::ConductorStep;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        // A minimal echo A2A peer: message/send returns a COMPLETED task whose reply
+        // echoes the prompt (so no polling is needed for this test).
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", server.server_addr().to_ip().unwrap());
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_thread = stop.clone();
+        let handle = std::thread::spawn(move || {
+            while !stop_thread.load(Ordering::Relaxed) {
+                let mut req = match server.recv_timeout(Duration::from_millis(50)) {
+                    Ok(Some(r)) => r,
+                    Ok(None) => continue,
+                    Err(_) => break,
+                };
+                let mut body = String::new();
+                let _ = req.as_reader().read_to_string(&mut body);
+                let v: serde_json::Value =
+                    serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
+                let id = v.get("id").cloned().unwrap_or(serde_json::Value::Null);
+                let prompt = v["params"]["message"]["parts"][0]["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                let msg = Message::agent_text(format!("PEER DONE: {prompt}"), "t1", "c1");
+                let task = Task {
+                    id: "t1".into(),
+                    context_id: "c1".into(),
+                    status: TaskStatus {
+                        state: TaskState::Completed,
+                        message: Some(msg.clone()),
+                        timestamp: None,
+                    },
+                    history: vec![msg],
+                    artifacts: vec![],
+                };
+                let out =
+                    crate::a2a::rpc_result(&id, serde_json::to_value(task).unwrap()).to_string();
+                let hdr =
+                    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                        .unwrap();
+                let _ = req.respond(tiny_http::Response::from_string(out).with_header(hdr));
+            }
+        });
+
+        let peer = crate::a2a::A2aPeer {
+            name: "echo".into(),
+            url: base,
+            token: None,
+        };
+        let step = ConductorStep {
+            title: "Add a settings page".into(),
+            detail: "create settings.tsx".into(),
+            kind: "code".into(),
+            parallel: false,
+        };
+        let mut events = Vec::new();
+        let run = super::delegate_step_via_a2a(&peer, 0, 2, &step, "overall goal", "", &mut |ev| {
+            events.push(ev)
+        })
+        .unwrap();
+
+        stop.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+
+        assert_eq!(run.backend_id, "a2a:echo");
+        // the peer's reply (which echoes our step prompt) is folded into the summary
+        assert!(run.summary.contains("PEER DONE"));
+        assert!(run.summary.contains("Add a settings page"));
+        // a delegated step makes no local file changes
+        assert!(run.outcome.changes.is_empty());
+        // both the routing note and the reply were streamed
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ModelRouted { .. })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Message { .. })));
     }
 }
