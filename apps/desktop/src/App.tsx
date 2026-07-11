@@ -793,9 +793,14 @@ function parseVersionSections(md: string, version: string): ChangeSection[] {
 // You just updated — here's what changed. A dismissible, on-brand card shown once per
 // version. Reduced-motion-safe (the fade is disabled under prefers-reduced-motion).
 function WhatsNewModal({ version, sections, onClose }: { version: string; sections: ChangeSection[]; onClose: () => void }) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
   return (
-    <div onClick={onClose} className="lectern-fadein" style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--panel)", border: "1px solid var(--bd)", borderRadius: 14, maxWidth: 540, width: "100%", maxHeight: "80vh", overflowY: "auto", padding: "28px 30px", boxShadow: "0 24px 70px rgba(0,0,0,0.42)" }}>
+    <div onClick={onClose} className="lectern-fadein" role="presentation" style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`What's new in Lectern ${version}`} style={{ background: "var(--panel)", border: "1px solid var(--bd)", borderRadius: 14, maxWidth: 540, width: "100%", maxHeight: "80vh", overflowY: "auto", padding: "28px 30px", boxShadow: "0 24px 70px rgba(0,0,0,0.42)" }}>
         <div className="mono" style={{ fontSize: 11, color: "var(--fg3)", letterSpacing: "0.14em", textTransform: "uppercase" }}>What&apos;s new</div>
         <h2 style={{ margin: "6px 0 20px", fontSize: 25, fontWeight: 800, letterSpacing: "-0.02em" }}>Lectern {version}</h2>
         {sections.map((s, i) => (
@@ -2127,10 +2132,10 @@ function Composer({ session, isClaude, personalAgent, skillsVersion, backends, m
           )}
           <div style={{ display: "flex", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-              <button className="icon-btn" onClick={attach} disabled={session.busy} title="Attach images or files"
+              <button className="icon-btn" onClick={attach} disabled={session.busy} title="Attach images or files" aria-label="Attach images or files"
                 style={{ width: 32, height: 32, borderRadius: 9, border: "none", background: "transparent", color: "var(--fg3)", cursor: session.busy ? "default" : "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}><Icon name="paperclip" size={18} /></button>
               {dictAvail && (
-                <button className="icon-btn" onClick={mic} disabled={session.busy} title={recording ? "Stop & transcribe" : transcribing ? "Transcribing…" : "Dictate (voice)"}
+                <button className="icon-btn" onClick={mic} disabled={session.busy} aria-label={recording ? "Stop & transcribe" : transcribing ? "Transcribing" : "Dictate (voice)"} title={recording ? "Stop & transcribe" : transcribing ? "Transcribing…" : "Dictate (voice)"}
                   style={{ width: 32, height: 32, borderRadius: 9, border: "none", background: "transparent", color: "var(--fg3)", cursor: session.busy ? "default" : "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
                   {transcribing ? <span className="mono" style={{ fontSize: 13, color: ACCENT }}>…</span> : <span className={recording ? "mic-rec" : ""} style={{ display: "flex" }}><Icon name="mic" size={18} /></span>}
                 </button>
@@ -2148,11 +2153,11 @@ function Composer({ session, isClaude, personalAgent, skillsVersion, backends, m
                   onYolo={() => onPatch((s) => (s.apply ? { ...s, yolo: !s.yolo } : s))} />
               )}
               {session.busy ? (
-                <button className="send-orb" onClick={onCancel} title="Stop (Esc)" style={{ ...orb, marginLeft: 0, background: "var(--panel2)", color: "var(--fg)", border: "1px solid var(--bd)", cursor: "pointer" }}>
+                <button className="send-orb" onClick={onCancel} title="Stop (Esc)" aria-label="Stop the run" style={{ ...orb, marginLeft: 0, background: "var(--panel2)", color: "var(--fg)", border: "1px solid var(--bd)", cursor: "pointer" }}>
                   <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden><rect x="1.5" y="1.5" width="9" height="9" rx="2" fill="currentColor" /></svg>
                 </button>
               ) : (
-                <button className="send-orb" onClick={blocked ? undefined : onSend} disabled={blocked} title="Send (Enter)" style={{ ...orb, marginLeft: 0, background: blocked ? "var(--bd)" : "var(--btn)", color: blocked ? "var(--fg3)" : "var(--btnfg)", cursor: blocked ? "default" : "pointer", fontSize: 17, fontWeight: 700 }}>↑</button>
+                <button className="send-orb" onClick={blocked ? undefined : onSend} disabled={blocked} title="Send (Enter)" aria-label="Send" style={{ ...orb, marginLeft: 0, background: blocked ? "var(--bd)" : "var(--btn)", color: blocked ? "var(--fg3)" : "var(--btnfg)", cursor: blocked ? "default" : "pointer", fontSize: 17, fontWeight: 700 }}>↑</button>
               )}
             </div>
           </div>
