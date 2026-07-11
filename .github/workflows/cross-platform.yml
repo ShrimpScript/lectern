@@ -81,14 +81,16 @@ jobs:
         run: npm ci
       # tauri.conf.json pins Linux targets (deb/appimage) — override per OS,
       # otherwise Win/Mac compile but skip bundling and upload nothing.
+      # Disable updater artifacts here: those require the signing key (kept off CI), and
+      # the auto-updater is Linux-only for now — Win/Mac ship as plain installers.
       - name: Tauri build (unsigned, Windows)
         if: runner.os == 'Windows'
         working-directory: apps/desktop
-        run: npx tauri build --bundles nsis
+        run: npx tauri build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - name: Tauri build (unsigned, macOS)
         if: runner.os == 'macOS'
         working-directory: apps/desktop
-        run: npx tauri build --bundles dmg
+        run: npx tauri build --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
