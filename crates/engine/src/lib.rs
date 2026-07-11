@@ -1,6 +1,7 @@
 //! Lectern engine — the local "V8". Owns workspaces, sessions, the backend adapter
 //! layer, the normalized event stream, and the local store. The CLI embeds this
 //! directly; `lecternd` will expose it over IPC. See Lectern-Brain/03-Architecture.
+pub mod a2a;
 pub mod audit;
 pub mod backend;
 pub mod checkpoint;

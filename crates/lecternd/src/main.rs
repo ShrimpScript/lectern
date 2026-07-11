@@ -245,6 +245,11 @@ fn main() -> Result<()> {
     // Background scheduler: runs due / auto-continue tasks on a loop.
     std::thread::spawn(scheduler_loop);
     println!("scheduler: checking for due tasks every 30s");
+    // Optional, opt-in, loopback-only A2A (Agent2Agent) endpoint. Off unless the
+    // user asks for it (LECTERN_A2A / LECTERN_A2A_ADDR). See docs/a2a-design.md.
+    if let Some(addr) = a2a::configured_addr() {
+        std::thread::spawn(move || a2a::serve(addr));
+    }
     println!("(Ctrl-C to stop)");
 
     loop {
@@ -584,4 +589,80 @@ fn handle(stream: Box<dyn Duplex>) -> Result<()> {
         line.clear();
     }
     Ok(())
+}
+
+/// The opt-in, loopback-only A2A (Agent2Agent) endpoint. Off by default; enabling
+/// is explicit and the bind is refused if it is not loopback. See docs/a2a-design.md.
+mod a2a {
+    use std::net::SocketAddr;
+    use tiny_http::{Method, Response, StatusCode};
+
+    /// Where to bind, if A2A is enabled. Enabled when `LECTERN_A2A` is truthy or
+    /// `LECTERN_A2A_ADDR` is set; defaults to `127.0.0.1:41041`. Any non-loopback
+    /// address is refused — A2A is loopback-only by design.
+    pub fn configured_addr() -> Option<SocketAddr> {
+        let enabled = std::env::var("LECTERN_A2A")
+            .map(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false);
+        let addr_env = std::env::var("LECTERN_A2A_ADDR").ok();
+        if !enabled && addr_env.is_none() {
+            return None;
+        }
+        let addr_str = addr_env.unwrap_or_else(|| "127.0.0.1:41041".to_string());
+        let addr: SocketAddr = match addr_str.trim().parse() {
+            Ok(a) => a,
+            Err(e) => {
+                eprintln!("[a2a] invalid LECTERN_A2A_ADDR '{addr_str}': {e}; A2A disabled");
+                return None;
+            }
+        };
+        if !addr.ip().is_loopback() {
+            eprintln!("[a2a] refusing non-loopback bind {addr}; A2A is loopback-only");
+            return None;
+        }
+        Some(addr)
+    }
+
+    fn json_header() -> tiny_http::Header {
+        tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+            .expect("static content-type header is valid")
+    }
+
+    /// Serve the A2A endpoint until the process exits. Currently serves the agent
+    /// card; `message/send` and `tasks/get` land in later slices.
+    pub fn serve(addr: SocketAddr) {
+        let server = match tiny_http::Server::http(addr) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[a2a] failed to bind {addr}: {e}");
+                return;
+            }
+        };
+        let endpoint = format!("http://{addr}/a2a");
+        let card = lectern_engine::a2a::agent_card(env!("CARGO_PKG_VERSION"), &endpoint);
+        let card_json = serde_json::to_string(&card).unwrap_or_default();
+        println!("a2a: endpoint on http://{addr} (loopback-only, opt-in)");
+
+        for request in server.incoming_requests() {
+            let is_get = request.method() == &Method::Get;
+            let is_post = request.method() == &Method::Post;
+            let url = request.url().to_string();
+            let resp = if is_get && url == "/.well-known/agent-card.json" {
+                Response::from_string(card_json.clone()).with_header(json_header())
+            } else if is_post && url == "/a2a" {
+                // message/send + tasks/get arrive in a later slice; answer with a
+                // well-formed JSON-RPC "method not found" until then.
+                let body = lectern_engine::a2a::rpc_error(
+                    &serde_json::Value::Null,
+                    lectern_engine::a2a::error::METHOD_NOT_FOUND,
+                    "A2A message handling is not enabled on this build yet",
+                )
+                .to_string();
+                Response::from_string(body).with_header(json_header())
+            } else {
+                Response::from_string("not found").with_status_code(StatusCode(404))
+            };
+            let _ = request.respond(resp);
+        }
+    }
 }
