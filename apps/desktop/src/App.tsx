@@ -739,7 +739,7 @@ export function App() {
           )}
           {(screen === "agent" || (screen === "chat" && !tiles)) && <Chat key={active.id} cleanDefault={prefs.clean_output} session={active} backends={backends} models={models} claudeAvailable={claudeAvailable} navCollapsed={!navOpen} onShowNav={() => setNavOpen(true)} skillsVersion={skillsVersion} personalAgent={!!active.personalAgent} dark={effTheme === "dark"} onPatch={(fn) => update(active.id, fn)} onSend={() => send(active)} onCancel={() => cancel(active)} onCommand={command} onSplit={active.personalAgent ? undefined : (dir) => splitPane(null, dir)} />}
           {screen !== "chat" && screen !== "agent" && !navOpen && (
-            <button onClick={() => setNavOpen(true)} className="icon-btn" title="Show sidebar"
+            <button onClick={() => setNavOpen(true)} className="icon-btn" title="Show sidebar" aria-label="Show sidebar"
               style={{ position: "absolute", top: 12, left: 12, zIndex: 30, width: 32, height: 32, borderRadius: 8, border: "1px solid var(--bd)", background: "var(--panel)", color: "var(--fg2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="panelLeft" size={17} /></button>
           )}
           {screen === "marketplace" && <Suspense fallback={<div style={{ maxWidth: 980, margin: "0 auto", padding: 40 }}><div className="lectern-skel" style={{ height: 34, width: 220, marginBottom: 18 }} /><div className="lectern-skel" style={{ height: 120 }} /></div>}><Marketplace path={active.path} onRefine={(text) => { update(active.id, (s2) => ({ ...s2, draft: text })); navTo("chat"); }} /></Suspense>}
@@ -1106,7 +1106,7 @@ function Rail({ screen, sessions, activeId, theme, claudeVersion, onNav, onNew, 
     <div style={{ width: 224, flexShrink: 0, borderRight: "1px solid var(--bd)", background: "var(--panel)", display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 9, height: 52, padding: "0 12px 0 16px", fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em", flexShrink: 0 }}>
         <Logo /> Lectern
-        <button onClick={onCollapse} className="icon-btn" title="Collapse sidebar" style={{ marginLeft: "auto", width: 28, height: 28, borderRadius: 7, border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="panelLeftClose" size={17} /></button>
+        <button onClick={onCollapse} className="icon-btn" title="Collapse sidebar" aria-label="Collapse sidebar" style={{ marginLeft: "auto", width: 28, height: 28, borderRadius: 7, border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="panelLeftClose" size={17} /></button>
       </div>
 
       <div style={{ padding: "2px 12px 8px", flexShrink: 0 }}>
@@ -1132,7 +1132,7 @@ function Rail({ screen, sessions, activeId, theme, claudeVersion, onNav, onNew, 
           <span style={{ color: claudeVersion ? ACCENT : "var(--fg3)", flexShrink: 0 }}>{claudeVersion ? "●" : "○"}</span>
           {claudeVersion ? claudeVersion.replace(" (Claude Code)", "") : "not found"}
         </span>
-        <button onClick={() => onTheme(theme === "dark" ? "light" : "dark")} title="Toggle light / dark" className="icon-btn"
+        <button onClick={() => onTheme(theme === "dark" ? "light" : "dark")} title="Toggle light / dark" aria-label="Toggle light / dark" className="icon-btn"
           style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 7, border: "1px solid var(--bd)", background: "transparent", color: "var(--fg2)", cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{theme === "dark" ? <MoonIcon /> : <SunIcon />}</button>
       </div>
     </div>
@@ -1507,7 +1507,7 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
           controls), instead of floating buttons. */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, height: 46, flexShrink: 0, padding: "0 12px", borderBottom: "1px solid var(--bd)", background: "var(--panel)" }}>
         {navCollapsed && (
-          <button onClick={onShowNav} className="icon-btn" title="Show sidebar" style={{ width: 32, height: 32, borderRadius: 8, border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><Icon name="panelLeft" size={17} /></button>
+          <button onClick={onShowNav} className="icon-btn" title="Show sidebar" aria-label="Show sidebar" style={{ width: 32, height: 32, borderRadius: 8, border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><Icon name="panelLeft" size={17} /></button>
         )}
         {agent && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -1545,7 +1545,7 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
           className="icon-btn" title="Copy this conversation" disabled={empty}
           style={{ height: 30, padding: "0 12px", borderRadius: 8, border: "1px solid var(--bd)", background: shared ? "var(--hov)" : "transparent", color: shared ? "var(--fg)" : "var(--fg2)", fontSize: 12.5, fontWeight: 600, cursor: empty ? "default" : "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 6, opacity: empty ? 0.45 : 1 }}>{shared ? "Copied ✓" : "Share"}</button>
         {(hasRepo || agent) && !empty && (
-          <button onClick={() => setShowPanel((v) => !v)} className="icon-btn" title={showPanel ? "Hide panel" : "Show panel"} style={{ width: 32, height: 32, borderRadius: 8, border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><Icon name={showPanel ? "panelRightClose" : "panelRight"} size={17} /></button>
+          <button onClick={() => setShowPanel((v) => !v)} className="icon-btn" title={showPanel ? "Hide panel" : "Show panel"} aria-label={showPanel ? "Hide panel" : "Show panel"} style={{ width: 32, height: 32, borderRadius: 8, border: "none", background: "transparent", color: "var(--fg2)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><Icon name={showPanel ? "panelRightClose" : "panelRight"} size={17} /></button>
         )}
       </div>
 
@@ -1606,6 +1606,7 @@ function Chat({ session, backends, models, claudeAvailable, navCollapsed, onShow
             <button
               onClick={() => { const el = scroller.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" }); pinned.current = true; setUnstuck(false); }}
               title="Jump to latest"
+              aria-label="Jump to latest"
               className="icon-btn"
               style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 168, zIndex: 5, width: 34, height: 34, borderRadius: 999, border: "1px solid var(--bd)", background: "var(--panel)", color: "var(--fg2)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-pop)" }}>
               <Icon name="chevron" size={16} />
