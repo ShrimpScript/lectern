@@ -536,6 +536,132 @@ impl A2aService {
     }
 }
 
+// ─────────────────────────── Outbound client ───────────────────────────
+
+/// A configured local A2A peer the Conductor may delegate to. Peers are declared
+/// explicitly (never auto-discovered off the network).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct A2aPeer {
+    pub name: String,
+    /// Base URL, e.g. `http://127.0.0.1:41041` (the card + `/a2a` hang off it).
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
+/// Load the explicit peer list from `~/.lectern/a2a-peers.json`. Missing or
+/// unreadable → no peers (the feature stays off unless the user opts in).
+pub fn load_peers() -> Vec<A2aPeer> {
+    load_peers_from(&crate::data_dir().join("a2a-peers.json"))
+}
+
+/// Load peers from a specific file: a JSON array of `{ name, url, token? }`.
+pub fn load_peers_from(path: &std::path::Path) -> Vec<A2aPeer> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Vec<A2aPeer>>(&text).unwrap_or_default()
+}
+
+/// A blocking A2A client for delegating a task to a local peer over JSON-RPC/HTTP.
+/// Built on ureq (already an engine dependency) — no async runtime.
+pub struct A2aClient {
+    agent: ureq::Agent,
+    poll_timeout: std::time::Duration,
+    poll_interval: std::time::Duration,
+}
+
+impl Default for A2aClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl A2aClient {
+    pub fn new() -> Self {
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(std::time::Duration::from_secs(3))
+            .timeout(std::time::Duration::from_secs(30))
+            .build();
+        A2aClient {
+            agent,
+            poll_timeout: std::time::Duration::from_secs(600),
+            poll_interval: std::time::Duration::from_millis(250),
+        }
+    }
+
+    /// Fetch a peer's agent card from `<base>/.well-known/agent-card.json`.
+    pub fn fetch_card(&self, base_url: &str, token: Option<&str>) -> anyhow::Result<AgentCard> {
+        let url = format!(
+            "{}/.well-known/agent-card.json",
+            base_url.trim_end_matches('/')
+        );
+        let mut req = self.agent.get(&url);
+        if let Some(t) = token {
+            req = req.set("Authorization", &format!("Bearer {t}"));
+        }
+        Ok(req.call()?.into_json::<AgentCard>()?)
+    }
+
+    /// Delegate a text task to a peer: send it, then poll `tasks/get` until the
+    /// task reaches a terminal state. Returns the final Task.
+    pub fn delegate(
+        &self,
+        base_url: &str,
+        token: Option<&str>,
+        prompt: &str,
+    ) -> anyhow::Result<Task> {
+        let endpoint = format!("{}/a2a", base_url.trim_end_matches('/'));
+        let params = MessageSendParams {
+            message: Message::user_text(prompt),
+            configuration: serde_json::Value::Null,
+            metadata: serde_json::Value::Null,
+        };
+        let send = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "message/send", "params": params
+        });
+        let task = self.rpc_task(&endpoint, token, &send)?;
+        if is_terminal(task.status.state) {
+            return Ok(task);
+        }
+        let task_id = task.id.clone();
+        let deadline = std::time::Instant::now() + self.poll_timeout;
+        while std::time::Instant::now() < deadline {
+            std::thread::sleep(self.poll_interval);
+            let get = serde_json::json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tasks/get", "params": { "id": task_id }
+            });
+            let task = self.rpc_task(&endpoint, token, &get)?;
+            if is_terminal(task.status.state) {
+                return Ok(task);
+            }
+        }
+        anyhow::bail!("A2A peer task {task_id} did not reach a terminal state in time")
+    }
+
+    /// POST a JSON-RPC request and decode a `Task` from its `result`.
+    fn rpc_task(
+        &self,
+        endpoint: &str,
+        token: Option<&str>,
+        body: &serde_json::Value,
+    ) -> anyhow::Result<Task> {
+        let mut req = self.agent.post(endpoint);
+        if let Some(t) = token {
+            req = req.set("Authorization", &format!("Bearer {t}"));
+        }
+        let resp: serde_json::Value = req.send_json(body)?.into_json()?;
+        if let Some(err) = resp.get("error") {
+            anyhow::bail!("A2A peer returned an error: {err}");
+        }
+        let result = resp
+            .get("result")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("A2A response missing a result"))?;
+        Ok(serde_json::from_value(result)?)
+    }
+}
+
 /// Current UTC time as an RFC 3339 / ISO 8601 string (`YYYY-MM-DDThh:mm:ssZ`).
 fn now_rfc3339() -> String {
     let secs = std::time::SystemTime::now()
@@ -787,5 +913,152 @@ mod tests {
         assert_eq!(rfc3339_utc(0), "1970-01-01T00:00:00Z");
         assert_eq!(rfc3339_utc(946_684_800), "2000-01-01T00:00:00Z");
         assert_eq!(rfc3339_utc(1_000_000_000), "2001-09-09T01:46:40Z");
+    }
+
+    // ── Outbound client, exercised against an in-test mock A2A peer ──
+
+    /// A tiny loopback A2A server for the client tests. Serves the agent card and
+    /// answers message/send (WORKING, to force a poll) + tasks/get (COMPLETED,
+    /// echoing the prompt). Set `fail` to make message/send return a JSON-RPC error.
+    struct MockPeer {
+        base: String,
+        stop: Arc<AtomicBool>,
+        handle: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Drop for MockPeer {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            if let Some(h) = self.handle.take() {
+                let _ = h.join();
+            }
+        }
+    }
+
+    fn spawn_mock_peer(fail: bool) -> MockPeer {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let addr = server.server_addr().to_ip().unwrap();
+        let base = format!("http://{addr}");
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_thread = stop.clone();
+        let handle = std::thread::spawn(move || {
+            let last_prompt = std::sync::Mutex::new(String::new());
+            while !stop_thread.load(Ordering::Relaxed) {
+                let mut request = match server.recv_timeout(Duration::from_millis(50)) {
+                    Ok(Some(r)) => r,
+                    Ok(None) => continue,
+                    Err(_) => break,
+                };
+                let is_card = request.method() == &tiny_http::Method::Get
+                    && request.url() == "/.well-known/agent-card.json";
+                let mut body = String::new();
+                let _ = request.as_reader().read_to_string(&mut body);
+                let out = if is_card {
+                    serde_json::to_string(&agent_card("9.9.9", "http://peer/a2a")).unwrap()
+                } else {
+                    let req: serde_json::Value =
+                        serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
+                    let id = req.get("id").cloned().unwrap_or(serde_json::Value::Null);
+                    match req.get("method").and_then(|m| m.as_str()).unwrap_or("") {
+                        "message/send" if fail => {
+                            rpc_error(&id, error::INTERNAL, "peer boom").to_string()
+                        }
+                        "message/send" => {
+                            *last_prompt.lock().unwrap() = req["params"]["message"]["parts"][0]
+                                ["text"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string();
+                            let task = Task {
+                                id: "pt-1".into(),
+                                context_id: "pc-1".into(),
+                                status: TaskStatus {
+                                    state: TaskState::Working,
+                                    message: None,
+                                    timestamp: None,
+                                },
+                                history: vec![],
+                                artifacts: vec![],
+                            };
+                            rpc_result(&id, serde_json::to_value(task).unwrap()).to_string()
+                        }
+                        "tasks/get" => {
+                            let reply = format!("echo: {}", last_prompt.lock().unwrap());
+                            let msg = Message::agent_text(reply, "pt-1", "pc-1");
+                            let task = Task {
+                                id: "pt-1".into(),
+                                context_id: "pc-1".into(),
+                                status: TaskStatus {
+                                    state: TaskState::Completed,
+                                    message: Some(msg.clone()),
+                                    timestamp: Some("2026-07-11T00:00:00Z".into()),
+                                },
+                                history: vec![msg],
+                                artifacts: vec![],
+                            };
+                            rpc_result(&id, serde_json::to_value(task).unwrap()).to_string()
+                        }
+                        _ => rpc_error(&id, error::METHOD_NOT_FOUND, "nope").to_string(),
+                    }
+                };
+                let hdr =
+                    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                        .unwrap();
+                let _ = request.respond(tiny_http::Response::from_string(out).with_header(hdr));
+            }
+        });
+        MockPeer {
+            base,
+            stop,
+            handle: Some(handle),
+        }
+    }
+
+    #[test]
+    fn client_fetches_peer_card() {
+        let peer = spawn_mock_peer(false);
+        let card = A2aClient::new().fetch_card(&peer.base, None).unwrap();
+        assert_eq!(card.name, "Lectern");
+        assert_eq!(card.protocol_version, "1.0");
+        assert_eq!(card.skills[0].id, "run");
+    }
+
+    #[test]
+    fn client_delegates_and_polls_to_completion() {
+        let peer = spawn_mock_peer(false);
+        let task = A2aClient::new()
+            .delegate(&peer.base, None, "hello there")
+            .unwrap();
+        assert_eq!(task.status.state, TaskState::Completed);
+        let reply = Part::joined_text(&task.status.message.unwrap().parts);
+        assert!(reply.contains("echo: hello there"));
+    }
+
+    #[test]
+    fn client_surfaces_peer_error() {
+        let peer = spawn_mock_peer(true);
+        let err = A2aClient::new()
+            .delegate(&peer.base, None, "x")
+            .unwrap_err();
+        assert!(err.to_string().contains("peer boom"));
+    }
+
+    #[test]
+    fn load_peers_from_reads_array_and_missing_is_empty() {
+        let dir = std::env::temp_dir().join(format!("a2a-peers-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a2a-peers.json");
+        std::fs::write(
+            &path,
+            r#"[{"name":"local","url":"http://127.0.0.1:41041"},
+                {"name":"tok","url":"http://127.0.0.1:41042","token":"secret"}]"#,
+        )
+        .unwrap();
+        let peers = load_peers_from(&path);
+        assert_eq!(peers.len(), 2);
+        assert_eq!(peers[0].name, "local");
+        assert_eq!(peers[1].token.as_deref(), Some("secret"));
+        assert!(load_peers_from(&dir.join("nope.json")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
