@@ -301,8 +301,41 @@ struct TaskEntry {
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
+/// Most tasks the in-memory store keeps before evicting the oldest. An inbound
+/// endpoint runs for the life of the daemon, so the store must not grow without
+/// bound; on a loopback endpoint tasks are short-lived, so a generous cap is plenty.
+const TASK_CAP: usize = 256;
+
+/// A bounded task store: a map keyed by task id plus an insertion-order queue, so
+/// the oldest tasks are evicted once the cap is reached. `insert`/`get`/`get_mut`
+/// mirror the `HashMap` API so callers are unchanged.
+#[derive(Default)]
+struct TaskStore {
+    map: std::collections::HashMap<String, TaskEntry>,
+    order: std::collections::VecDeque<String>,
+}
+
+impl TaskStore {
+    fn insert(&mut self, id: String, entry: TaskEntry) {
+        if self.map.insert(id.clone(), entry).is_none() {
+            self.order.push_back(id);
+        }
+        while self.order.len() > TASK_CAP {
+            if let Some(old) = self.order.pop_front() {
+                self.map.remove(&old);
+            }
+        }
+    }
+    fn get(&self, id: &str) -> Option<&TaskEntry> {
+        self.map.get(id)
+    }
+    fn get_mut(&mut self, id: &str) -> Option<&mut TaskEntry> {
+        self.map.get_mut(id)
+    }
+}
+
 struct Inner {
-    tasks: std::sync::Mutex<std::collections::HashMap<String, TaskEntry>>,
+    tasks: std::sync::Mutex<TaskStore>,
     runner: Runner,
 }
 
@@ -333,7 +366,7 @@ impl A2aService {
     {
         A2aService {
             inner: std::sync::Arc::new(Inner {
-                tasks: std::sync::Mutex::new(std::collections::HashMap::new()),
+                tasks: std::sync::Mutex::new(TaskStore::default()),
                 runner: Box::new(runner),
             }),
         }
@@ -777,6 +810,34 @@ mod tests {
         assert!(v.get("artifacts").is_none()); // empty vec skipped
         let back: Task = serde_json::from_value(v).unwrap();
         assert_eq!(back, task);
+    }
+
+    #[test]
+    fn task_store_evicts_the_oldest_over_the_cap() {
+        let entry = |id: &str| TaskEntry {
+            task: Task {
+                id: id.to_string(),
+                context_id: "c".to_string(),
+                status: TaskStatus {
+                    state: TaskState::Completed,
+                    message: None,
+                    timestamp: None,
+                },
+                history: vec![],
+                artifacts: vec![],
+            },
+            cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let mut store = TaskStore::default();
+        for i in 0..(TASK_CAP + 10) {
+            let id = format!("t{i}");
+            store.insert(id.clone(), entry(&id));
+        }
+        // bounded to the cap; oldest evicted, newest kept
+        assert_eq!(store.map.len(), TASK_CAP);
+        assert_eq!(store.order.len(), TASK_CAP);
+        assert!(store.get("t0").is_none());
+        assert!(store.get(&format!("t{}", TASK_CAP + 9)).is_some());
     }
 
     #[test]
