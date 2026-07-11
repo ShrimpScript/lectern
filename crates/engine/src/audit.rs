@@ -5,8 +5,11 @@
 //! 2. Model audit — a $0 OpenCode free-model pass with a strict verdict
 //!    contract, run as a bare backend turn (no session, no brain, temp cwd).
 //!
-//! The gate applies to PUBLISHING into the hub. Manual local install/import
-//! deliberately bypasses it — your machine, your call.
+//! The full two-layer gate (static + model) runs at PUBLISH time. **Import/install**
+//! also runs the free static scan as a *warning* — it surfaces the findings but still
+//! imports by default (your machine, your call); `LECTERN_SKILL_STRICT` turns a hard
+//! `Block` into a refusal. The token-spending model layer stays publish-only. See
+//! `Engine::import_skill_audited`.
 use crate::backend::{Backend, TurnContext};
 use serde::Serialize;
 
