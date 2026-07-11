@@ -10,6 +10,11 @@ Lectern follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 
 ## [Unreleased]
 
+### Removed
+- **Cloud login, sync, and accounts.** Lectern is now fully local — there's no sign-in, and
+  nothing leaves your machine. Your provider logins (Claude Code, Antigravity, OpenCode) are
+  unchanged, and encrypted session export/import still works.
+
 ## [0.7.0] - 2026-07-10
 
 ### Added

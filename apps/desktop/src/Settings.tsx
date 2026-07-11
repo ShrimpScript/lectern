@@ -197,7 +197,7 @@ export function Settings({ backends, models, prefs, mcp, onMcp, onPrefs, onReche
             })}
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
-            <div className="mono" style={{ fontSize: 11, color: "var(--fg3)", lineHeight: 1.6, flex: 1 }}>Managed locally — keys stay on your machine, never our servers. Add/re-auth via the CLI (`claude`, `lectern login`).</div>
+            <div className="mono" style={{ fontSize: 11, color: "var(--fg3)", lineHeight: 1.6, flex: 1 }}>Managed locally — keys stay on your machine, never our servers. Add/re-auth via each provider's own CLI (`claude`, `agy`, `opencode`).</div>
             <button onClick={onRecheck} style={{ height: 30, flexShrink: 0, padding: "0 12px", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--fg)", background: "transparent", border: "1px solid var(--bd)", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>↻ Re-check</button>
           </div>
         </Section>
