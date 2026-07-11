@@ -594,8 +594,11 @@ fn handle(stream: Box<dyn Duplex>) -> Result<()> {
 /// The opt-in, loopback-only A2A (Agent2Agent) endpoint. Off by default; enabling
 /// is explicit and the bind is refused if it is not loopback. See docs/a2a-design.md.
 mod a2a {
+    use lectern_engine::a2a::A2aService;
+    use std::io::Read;
     use std::net::SocketAddr;
-    use tiny_http::{Method, Response, StatusCode};
+    use std::sync::Arc;
+    use tiny_http::{Method, Request, Response, StatusCode};
 
     /// Where to bind, if A2A is enabled. Enabled when `LECTERN_A2A` is truthy or
     /// `LECTERN_A2A_ADDR` is set; defaults to `127.0.0.1:41041`. Any non-loopback
@@ -628,8 +631,71 @@ mod a2a {
             .expect("static content-type header is valid")
     }
 
-    /// Serve the A2A endpoint until the process exits. Currently serves the agent
-    /// card; `message/send` and `tasks/get` land in later slices.
+    /// Largest inbound request body we read (JSON-RPC messages are small).
+    const MAX_BODY: u64 = 256 * 1024;
+
+    /// Run a Lectern turn for an inbound A2A message and return the agent's reply
+    /// text. Uses the workspace at the daemon's cwd. Never auto-applies changes —
+    /// a remote peer's task returns proposed changes, it does not write the disk.
+    /// The backend is `auto` by default; `LECTERN_A2A_BACKEND=mock` forces the
+    /// no-cost mock (used for end-to-end tests).
+    fn run_turn(backend_id: &str, prompt: &str) -> anyhow::Result<String> {
+        use lectern_engine::event::AgentEvent as E;
+        use std::path::Path;
+        use std::sync::atomic::AtomicBool;
+
+        let engine = super::Engine::open_default()?;
+        let ws = engine.open_workspace(Path::new("."))?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let backend = super::build_backend(backend_id, false, None, cancel);
+        let mut reply = String::new();
+        let res = engine.run(
+            &ws,
+            prompt,
+            backend.as_ref(),
+            super::RunOptions {
+                apply: false,
+                worktree: false,
+            },
+            |ev| match ev {
+                E::Message { text } => {
+                    if !reply.is_empty() {
+                        reply.push('\n');
+                    }
+                    reply.push_str(&text);
+                }
+                E::MessageDelta { text } => reply.push_str(&text),
+                _ => {}
+            },
+        )?;
+        if reply.trim().is_empty() {
+            reply = format!("Completed. {} proposed change(s).", res.changes.len());
+        }
+        Ok(reply)
+    }
+
+    /// Dispatch one HTTP request: the agent card (GET), a JSON-RPC call (POST
+    /// /a2a), or 404.
+    fn dispatch(mut request: Request, service: &A2aService, card_json: &str) {
+        let is_get = request.method() == &Method::Get;
+        let is_post = request.method() == &Method::Post;
+        let url = request.url().to_string();
+        let resp = if is_get && url == "/.well-known/agent-card.json" {
+            Response::from_string(card_json.to_string()).with_header(json_header())
+        } else if is_post && url == "/a2a" {
+            let mut body = String::new();
+            let _ = request.as_reader().take(MAX_BODY).read_to_string(&mut body);
+            let out = service.handle(&body).to_string();
+            Response::from_string(out).with_header(json_header())
+        } else {
+            Response::from_string("not found").with_status_code(StatusCode(404))
+        };
+        let _ = request.respond(resp);
+    }
+
+    /// Serve the A2A endpoint until the process exits: the agent card plus the
+    /// `message/send` / `tasks/get` JSON-RPC methods, each on its own thread so a
+    /// long-running turn never blocks discovery.
     pub fn serve(addr: SocketAddr) {
         let server = match tiny_http::Server::http(addr) {
             Ok(s) => s,
@@ -641,28 +707,17 @@ mod a2a {
         let endpoint = format!("http://{addr}/a2a");
         let card = lectern_engine::a2a::agent_card(env!("CARGO_PKG_VERSION"), &endpoint);
         let card_json = serde_json::to_string(&card).unwrap_or_default();
+        let backend_id =
+            std::env::var("LECTERN_A2A_BACKEND").unwrap_or_else(|_| "auto".to_string());
+        let service = Arc::new(A2aService::new(move |prompt: &str| {
+            run_turn(&backend_id, prompt)
+        }));
         println!("a2a: endpoint on http://{addr} (loopback-only, opt-in)");
 
         for request in server.incoming_requests() {
-            let is_get = request.method() == &Method::Get;
-            let is_post = request.method() == &Method::Post;
-            let url = request.url().to_string();
-            let resp = if is_get && url == "/.well-known/agent-card.json" {
-                Response::from_string(card_json.clone()).with_header(json_header())
-            } else if is_post && url == "/a2a" {
-                // message/send + tasks/get arrive in a later slice; answer with a
-                // well-formed JSON-RPC "method not found" until then.
-                let body = lectern_engine::a2a::rpc_error(
-                    &serde_json::Value::Null,
-                    lectern_engine::a2a::error::METHOD_NOT_FOUND,
-                    "A2A message handling is not enabled on this build yet",
-                )
-                .to_string();
-                Response::from_string(body).with_header(json_header())
-            } else {
-                Response::from_string("not found").with_status_code(StatusCode(404))
-            };
-            let _ = request.respond(resp);
+            let service = service.clone();
+            let card_json = card_json.clone();
+            std::thread::spawn(move || dispatch(request, &service, &card_json));
         }
     }
 }
