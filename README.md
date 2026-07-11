@@ -59,13 +59,13 @@ apps/
 
 ## Install
 
-**Terminal (CLI + TUI + daemon)** — one command:
+**Terminal (CLI + daemon)** — download and unpack the binaries:
 
 ```sh
-curl -fsSL https://github.com/ShrimpScript/lectern/releases/download/v0.5.0/lectern-cli-linux-x64.tar.gz | tar xz && sh install.sh
+curl -fsSL https://github.com/ShrimpScript/lectern/releases/latest/download/lectern-cli-linux-x64.tar.gz | tar xz
 ```
 
-Installs `lectern`, `lecternd`, and `lectern-tui` into `~/.local/bin`. Start with `lectern doctor`.
+Unpacks `lectern` and `lecternd` — move them onto your `PATH` (e.g. `~/.local/bin`), then run `lectern doctor`.
 
 **Nix** — the CLI and daemon are packaged as a flake:
 
