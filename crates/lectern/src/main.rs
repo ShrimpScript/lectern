@@ -5,8 +5,8 @@ use clap::{Parser, Subcommand};
 use lectern_engine::backend::Backend;
 use lectern_engine::event::{AgentEvent, DiffKind};
 use lectern_engine::{
-    cloud, AntigravityBackend, ClaudeCodeBackend, Engine, LimitBackend, MockBackend,
-    OpenCodeBackend, RunOptions,
+    AntigravityBackend, ClaudeCodeBackend, Engine, LimitBackend, MockBackend, OpenCodeBackend,
+    RunOptions,
 };
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -228,23 +228,8 @@ enum Cmd {
     },
     /// List backends and their availability.
     Backends,
-    /// Check your setup: engine, Claude Code, Antigravity, and cloud login.
+    /// Check your setup: engine, Claude Code, and Antigravity.
     Doctor,
-    /// Sign in to Lectern cloud (device authorization grant).
-    Login {
-        /// Override the cloud base URL (or set LECTERN_API_URL).
-        #[arg(long)]
-        url: Option<String>,
-    },
-    /// Sign out (clears the stored cloud token).
-    Logout,
-    /// Show the signed-in account, plan, and limits.
-    Account,
-    /// Sync learned skills/memory with the cloud (E2E-encrypted).
-    Sync {
-        #[command(subcommand)]
-        cmd: SyncCmd,
-    },
     /// Schedule a task for later, or run due tasks now.
     Schedule {
         #[command(subcommand)]
@@ -324,25 +309,6 @@ enum ScheduleCmd {
     RunDue {
         #[arg(long, default_value = "3600")]
         retry_after: i64,
-    },
-}
-
-#[derive(Subcommand)]
-enum SyncCmd {
-    /// Push this workspace's skills to the cloud.
-    Push {
-        #[arg(short, long, default_value = ".")]
-        path: PathBuf,
-    },
-    /// Pull and import synced skills for this workspace.
-    Pull {
-        #[arg(short, long, default_value = ".")]
-        path: PathBuf,
-    },
-    /// Show sync status for this workspace.
-    Status {
-        #[arg(short, long, default_value = ".")]
-        path: PathBuf,
     },
 }
 
@@ -474,14 +440,6 @@ fn run() -> Result<()> {
                 path,
             } => cmd_skills_record(name, session, &path),
             SkillsCmd::Import { file } => cmd_skills_import(&file),
-        },
-        Cmd::Login { url } => cmd_login(url),
-        Cmd::Logout => cmd_logout(),
-        Cmd::Account => cmd_account(),
-        Cmd::Sync { cmd } => match cmd {
-            SyncCmd::Push { path } => cmd_sync(&path, "push"),
-            SyncCmd::Pull { path } => cmd_sync(&path, "pull"),
-            SyncCmd::Status { path } => cmd_sync(&path, "status"),
         },
         Cmd::Schedule { cmd } => match cmd {
             ScheduleCmd::Add {
@@ -626,96 +584,6 @@ fn cmd_conduct(
             result.usage.output_tokens
         ))
     );
-    Ok(())
-}
-
-fn cloud_base(url: Option<String>) -> String {
-    url.or_else(|| std::env::var("LECTERN_API_URL").ok())
-        .unwrap_or_else(|| cloud::DEFAULT_BASE_URL.to_string())
-}
-
-fn cmd_login(url: Option<String>) -> Result<()> {
-    let base = cloud_base(url);
-    let dc = cloud::request_device_code(&base)?;
-    println!("{}", bold("Sign in to Lectern"));
-    println!("  1. open  {CYAN}{}{RESET}", dc.verification_uri);
-    println!("  2. enter code  {}", bold(&dc.user_code));
-    println!("{}", dim("waiting for approval…"));
-    let token = cloud::poll_for_token(&base, &dc.device_code, dc.interval, dc.expires_in)?;
-    cloud::save_auth(&cloud::Auth {
-        base_url: base,
-        token,
-    })?;
-    println!("{GREEN}✓ logged in{RESET}");
-    if let Some(auth) = cloud::load_auth() {
-        if let Ok(ent) = cloud::get_entitlements(&auth) {
-            if let Some(plan) = ent.pointer("/token/plan").and_then(|p| p.as_str()) {
-                println!("  {}", dim(&format!("plan: {plan}")));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn cmd_logout() -> Result<()> {
-    cloud::clear_auth()?;
-    println!("{}", dim("signed out."));
-    Ok(())
-}
-
-fn cmd_account() -> Result<()> {
-    let auth =
-        cloud::load_auth().ok_or_else(|| anyhow::anyhow!("not logged in — run `lectern login`"))?;
-    println!("{}  {}", bold("Account"), dim(&auth.base_url));
-    let ent = cloud::get_entitlements(&auth)?;
-    let plan = ent
-        .pointer("/token/plan")
-        .and_then(|p| p.as_str())
-        .unwrap_or("?");
-    println!("  plan: {}", bold(plan));
-    if let Some(limits) = ent.pointer("/token/limits").and_then(|l| l.as_object()) {
-        for (k, v) in limits {
-            println!("    {}", dim(&format!("{k}: {v}")));
-        }
-    }
-    Ok(())
-}
-
-fn cmd_sync(path: &std::path::Path, action: &str) -> Result<()> {
-    let engine = Engine::open_default()?;
-    let ws = engine.open_workspace(path)?;
-    match action {
-        "push" => {
-            let n = engine.sync_push(&ws)?;
-            println!(
-                "{GREEN}✓{RESET} pushed {} skill(s) for {}",
-                n,
-                bold(&ws.name)
-            );
-        }
-        "pull" => {
-            let n = engine.sync_pull(&ws)?;
-            println!(
-                "{GREEN}✓{RESET} imported {} new skill(s) for {}",
-                n,
-                bold(&ws.name)
-            );
-        }
-        _ => {
-            let logged_in = cloud::load_auth().is_some();
-            let local = engine.list_skills(&ws)?.len();
-            println!("{}  {}", bold("Sync"), dim(&ws.name));
-            println!(
-                "  signed in: {}",
-                if logged_in {
-                    "yes"
-                } else {
-                    "no — run `lectern login`"
-                }
-            );
-            println!("  local skills: {local}");
-        }
-    }
     Ok(())
 }
 
@@ -971,12 +839,6 @@ fn cmd_run(
             result.usage.input_tokens,
             result.usage.output_tokens
         ))
-    );
-    // Best-effort content-free usage telemetry (only if signed in; counts only).
-    engine.report_usage(
-        backend.id(),
-        result.usage.input_tokens,
-        result.usage.output_tokens,
     );
     // Auto-continue: if the backend hit a usage limit, schedule a retry for later.
     if result.limit_hit {
@@ -1655,17 +1517,6 @@ fn cmd_doctor() -> Result<()> {
             "  {DIM}○{RESET} lecternd not running {}",
             dim("(optional — schedules also run via `lectern schedule run-due`)")
         );
-    }
-
-    match cloud::load_auth() {
-        Some(a) => println!(
-            "  {GREEN}✓{RESET} cloud: signed in {}",
-            dim(&format!("· {}", a.base_url))
-        ),
-        None => println!(
-            "  {DIM}○{RESET} cloud: not signed in {}",
-            dim("(optional — run `lectern login`)")
-        ),
     }
 
     println!();
