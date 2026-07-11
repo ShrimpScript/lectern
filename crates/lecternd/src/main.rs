@@ -136,12 +136,18 @@ fn build_backend(
             cancel: Some(cancel.clone()),
             ..OpenCodeBackend::new()
         }),
-        "mock" => Box::new(MockBackend { fast: true }),
+        "mock" => Box::new(MockBackend {
+            fast: true,
+            steer: None,
+        }),
         _ => {
             if ClaudeCodeBackend::new().available() {
                 claude(model)
             } else {
-                Box::new(MockBackend { fast: true })
+                Box::new(MockBackend {
+                    fast: true,
+                    steer: None,
+                })
             }
         }
     }

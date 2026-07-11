@@ -2055,10 +2055,16 @@ per bullet — no preamble, no narration around it.";
                 if cc.available() {
                     Box::new(cc)
                 } else {
-                    Box::new(MockBackend { fast: true })
+                    Box::new(MockBackend {
+                        fast: true,
+                        steer: None,
+                    })
                 }
             }
-            _ => Box::new(MockBackend { fast: true }),
+            _ => Box::new(MockBackend {
+                fast: true,
+                steer: None,
+            }),
         }
     }
 
@@ -3309,7 +3315,10 @@ mod tests {
         let dir = tmp_workspace(&[("readme.md", "hello")]);
         let engine = Engine::with_store(Store::open_in_memory().unwrap());
         let ws = engine.open_workspace(&dir).unwrap();
-        let backend = MockBackend { fast: true };
+        let backend = MockBackend {
+            fast: true,
+            steer: None,
+        };
 
         let mut saw_checkpoint = false;
         engine
@@ -3387,7 +3396,10 @@ mod tests {
         let engine = Engine::with_store(Store::open_in_memory().unwrap());
         let ws = engine.open_workspace(&dir).unwrap();
         // run a mock session so there's something to record
-        let backend = MockBackend { fast: true };
+        let backend = MockBackend {
+            fast: true,
+            steer: None,
+        };
         let mut events = 0;
         engine
             .run(

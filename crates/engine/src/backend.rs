@@ -291,13 +291,43 @@ pub trait Backend {
 // ───────────────────────────── Mock backend ─────────────────────────────────
 /// Produces the full staged turn with no external dependency — used to prove the
 /// pipeline end-to-end and for offline demos.
+/// A thread-safe queue of mid-turn steering messages: the caller pushes, a running
+/// turn drains at a safe boundary. Mirrors the `cancel` seam. See
+/// docs/mid-turn-steering-design.md.
+pub type Steer = std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<String>>>;
+
+/// Drain all queued steering messages, in order (None/empty → empty).
+pub fn drain_steer(steer: &Option<Steer>) -> Vec<String> {
+    match steer {
+        Some(s) => s
+            .lock()
+            .map(|mut q| q.drain(..).collect())
+            .unwrap_or_default(),
+        None => Vec::new(),
+    }
+}
+
+/// Push a steering message onto the queue for a running turn to pick up.
+pub fn push_steer(steer: &Steer, msg: impl Into<String>) {
+    if let Ok(mut q) = steer.lock() {
+        q.push_back(msg.into());
+    }
+}
+
 pub struct MockBackend {
     pub fast: bool,
+    /// Optional mid-turn steering queue. The mock drains it at a boundary and
+    /// reflects each message — the deterministic proof of the steering mechanism,
+    /// with no process and no tokens. See docs/mid-turn-steering-design.md.
+    pub steer: Option<Steer>,
 }
 
 impl MockBackend {
     pub fn new() -> Self {
-        Self { fast: false }
+        Self {
+            fast: false,
+            steer: None,
+        }
     }
     fn nap(&self, ms: u64) {
         if !self.fast {
@@ -330,6 +360,12 @@ impl Backend for MockBackend {
             recalls: vec![],
         });
         self.nap(300);
+        // Mid-turn steering boundary: reflect any messages injected while running.
+        for msg in drain_steer(&self.steer) {
+            sink(AgentEvent::Message {
+                text: format!("steering: {msg}"),
+            });
+        }
         sink(AgentEvent::Plan {
             steps: vec![
                 PlanStep {
@@ -1841,6 +1877,43 @@ mod tests {
             system: None,
             apply: false,
         }
+    }
+
+    #[test]
+    fn mock_reflects_a_mid_turn_steer_and_is_unchanged_without_one() {
+        use std::collections::VecDeque;
+        use std::sync::{Arc, Mutex};
+        let ws = Path::new("/tmp/ws");
+        let collect_messages = |mock: &MockBackend| -> Vec<String> {
+            let mut texts = Vec::new();
+            mock.run_turn("do it", &tctx(ws), &mut |ev| {
+                if let AgentEvent::Message { text } = ev {
+                    texts.push(text);
+                }
+            })
+            .unwrap();
+            texts
+        };
+
+        // A steer queued before the turn is reflected in the stream.
+        let steer: Steer = Arc::new(Mutex::new(VecDeque::new()));
+        push_steer(&steer, "focus on the tests");
+        let steered = MockBackend {
+            fast: true,
+            steer: Some(steer),
+        };
+        assert!(collect_messages(&steered)
+            .iter()
+            .any(|t| t.contains("steering: focus on the tests")));
+
+        // No steer → no steering message (default behaviour unchanged).
+        let plain = MockBackend {
+            fast: true,
+            steer: None,
+        };
+        assert!(!collect_messages(&plain)
+            .iter()
+            .any(|t| t.contains("steering:")));
     }
 
     #[test]

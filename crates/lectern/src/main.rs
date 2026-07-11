@@ -492,7 +492,12 @@ fn cmd_learn_system() -> Result<()> {
             yolo: true,
             fallback_model: None,
         };
-        pick_backend(b, &flags).unwrap_or_else(|_| Box::new(MockBackend { fast: true }))
+        pick_backend(b, &flags).unwrap_or_else(|_| {
+            Box::new(MockBackend {
+                fast: true,
+                steer: None,
+            })
+        })
     };
     let profile = engine.learn_system(&make, &mut render_event)?;
     println!();
@@ -548,7 +553,12 @@ fn cmd_conduct(
             yolo,
             fallback_model: None,
         };
-        pick_backend(use_backend, &flags).unwrap_or_else(|_| Box::new(MockBackend { fast: true }))
+        pick_backend(use_backend, &flags).unwrap_or_else(|_| {
+            Box::new(MockBackend {
+                fast: true,
+                steer: None,
+            })
+        })
     };
     let mut metrics = RunMetrics::new("conductor", backend);
     let started = Instant::now();
@@ -633,10 +643,16 @@ fn pick_backend(name: &str, flags: &RunFlags) -> Result<Box<dyn Backend>> {
             if ClaudeCodeBackend::new().available() {
                 make_claude(flags)
             } else {
-                Ok(Box::new(MockBackend { fast: flags.fast }))
+                Ok(Box::new(MockBackend {
+                    fast: flags.fast,
+                    steer: None,
+                }))
             }
         }
-        "mock" => Ok(Box::new(MockBackend { fast: flags.fast })),
+        "mock" => Ok(Box::new(MockBackend {
+            fast: flags.fast,
+            steer: None,
+        })),
         "mock-limit" => Ok(Box::new(LimitBackend)),
         "claude-code" | "claude" => make_claude(flags),
         "antigravity" | "gemini" => {
