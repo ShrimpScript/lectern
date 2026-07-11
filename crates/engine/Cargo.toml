@@ -14,10 +14,14 @@ anyhow = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 directories = "5"
-# Cloud client (optional sync/usage/login) + E2E encryption of synced blobs.
+# HTTP client: hub/registry fetches, model discovery, and the A2A peer client.
 ureq = { version = "2", features = ["json"] }
 chacha20poly1305 = "0.10"
 scrypt = "0.11"
 rand = "0.8"
 base64 = "0.22"
 sha2 = "0.10"
+
+[dev-dependencies]
+# In-test mock A2A peer server for the outbound-client tests (test-only).
+tiny_http = { version = "0.12", default-features = false }
