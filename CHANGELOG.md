@@ -11,6 +11,12 @@ Lectern follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 ## [Unreleased]
 
 ### Added
+- **Opt-in run sandbox (Linux).** Set `LECTERN_SANDBOX=1` to run an agent's backend inside a
+  [bubblewrap](https://github.com/containers/bubblewrap) sandbox that confines writes to the
+  workspace — the rest of the filesystem is read-only — so an injected instruction that lands
+  becomes a bad transcript rather than files written outside the repo. `LECTERN_SANDBOX_NET=off`
+  additionally isolates the network. It's **off by default**, degrades with a clear error if
+  bubblewrap isn't installed, and `lectern doctor` reports its availability.
 - **Local Agent2Agent (A2A) interop.** Lectern can now exchange work with other A2A agents
   on your machine — A2A (v1.0) is the inter-agent standard that complements MCP. It is
   **off by default, loopback-only, and opt-in**:
