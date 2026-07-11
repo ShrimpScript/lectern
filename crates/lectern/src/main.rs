@@ -1250,6 +1250,7 @@ fn cmd_rewind(id: Option<&str>, path: &std::path::Path) -> Result<()> {
 }
 
 fn cmd_skills_import(file: &std::path::Path) -> Result<()> {
+    use lectern_engine::audit::Verdict;
     let content =
         std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
     let engine = Engine::open_default()?;
@@ -1257,13 +1258,40 @@ fn cmd_skills_import(file: &std::path::Path) -> Result<()> {
     let is_md = file
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("md"));
-    let skill = if is_md {
-        engine.import_skill_md(&content)
+    // A static safety scan runs on the skill text. By default it only warns (your
+    // machine, your call); `LECTERN_SKILL_STRICT=1` turns a hard block into a refusal,
+    // surfaced here as the import error.
+    let imported = if is_md {
+        engine.import_skill_md_audited(&content)
     } else {
-        engine.import_skill(&content)
+        engine.import_skill_audited(&content)
     }
     .with_context(|| format!("importing {}", file.display()))?;
-    println!("{GREEN}✓{RESET} imported skill {}", bold(&skill.name));
+
+    match imported.verdict {
+        Verdict::Pass => {}
+        v => {
+            if v == Verdict::Block {
+                println!(
+                    "  {RED}caution{RESET} {}",
+                    dim("— this skill's text tripped hard safety rules:")
+                );
+            } else {
+                println!("  {}", dim("skill scan — warnings:"));
+            }
+            for f in &imported.findings {
+                println!("    {}", dim(&format!("- {f}")));
+            }
+            println!(
+                "    {}",
+                dim("imported anyway — your machine, your call (LECTERN_SKILL_STRICT=1 refuses hard-blocked skills)")
+            );
+        }
+    }
+    println!(
+        "{GREEN}✓{RESET} imported skill {}",
+        bold(&imported.skill.name)
+    );
     Ok(())
 }
 
