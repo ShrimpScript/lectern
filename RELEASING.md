@@ -55,16 +55,28 @@ the change, so cutting a release never means reconstructing history.
    ```
 
    The signed `Lectern_X.Y.Z_amd64.AppImage` and `.AppImage.sig` land in
-   `apps/desktop/src-tauri/target/release/bundle/appimage/`. The Windows/macOS installers
-   come from the `Cross-platform` workflow (`workflow_dispatch` with `installers: true`).
-7. **Generate the update manifest.** Point it at the release download for this version:
+   `apps/desktop/src-tauri/target/release/bundle/appimage/`. The Windows/macOS artifacts come
+   from the `Cross-platform` workflow (`workflow_dispatch` with `installers: true`). **If the
+   `TAURI_SIGNING_PRIVATE_KEY` secret is set on the repo** (see "The signing key" below), that run
+   also produces *signed updater artifacts* — Windows `…-setup.exe` + `.exe.sig`, macOS
+   `…app.tar.gz` + `.sig` — so those platforms auto-update too. Without the secret it produces
+   plain unsigned installers (no auto-update on Win/Mac). Download the artifacts to alongside the
+   AppImage.
+7. **Generate the update manifest.** Point it at the release download for this version. Include a
+   flag per platform you have a *signed* artifact for (Linux always; Windows/macOS only when the
+   signing secret was set):
 
    ```
    scripts/make-latest-json.sh X.Y.Z \
-     apps/desktop/src-tauri/target/release/bundle/appimage/Lectern_X.Y.Z_amd64.AppImage \
-     apps/desktop/src-tauri/target/release/bundle/appimage/Lectern_X.Y.Z_amd64.AppImage.sig \
+     --linux   .../appimage/Lectern_X.Y.Z_amd64.AppImage       .../appimage/Lectern_..._amd64.AppImage.sig \
+     --win     .../nsis/Lectern_X.Y.Z_x64-setup.exe            .../nsis/Lectern_..._x64-setup.exe.sig \
+     --mac-arm .../macos/Lectern.app.tar.gz                    .../macos/Lectern.app.tar.gz.sig \
      > latest.json
    ```
+
+   (The bare positional form — `make-latest-json.sh X.Y.Z <appimage> <sig>` — still works for a
+   Linux-only manifest.) GitHub's `macos-latest` is Apple Silicon, so `--mac-arm` covers arm64;
+   add `--mac-x64` when an Intel build exists.
 
    To embed the release notes in the manifest, extract them from the changelog first and
    pass the file as a 4th argument:
@@ -96,3 +108,13 @@ are signed with the matching **private** key. The private key never leaves the m
 machine and is never committed — it is passed to the build via the `TAURI_SIGNING_PRIVATE_KEY`
 environment variable at release time. Losing it means shipping a new public key in a future
 release; leaking it means anyone could sign an "update", so treat it like any other secret.
+
+**Windows/macOS auto-update** additionally needs the key available to CI (Linux releases are built
+locally, but Win/Mac are built by the `Cross-platform` workflow). To enable it, add the key as a
+repository secret — repo → Settings → Secrets and variables → Actions → New repository secret:
+
+- **`TAURI_SIGNING_PRIVATE_KEY`** — the entire contents of `~/.lectern/lectern-updater.key`.
+- **`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`** — only if the key was generated with a password.
+
+It must be the same key whose public half is baked into the app. Once the secret is present, the
+signed CI path turns on automatically; until then Win/Mac ship as plain installers.
