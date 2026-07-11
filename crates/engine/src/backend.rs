@@ -24,6 +24,47 @@ pub struct ProposedChange {
     pub new_content: Option<String>,
 }
 
+/// Detect a cheap, token-free way to verify a workspace after a run — the command a
+/// developer would run to catch build/type errors the agent may have introduced.
+/// Rust → `cargo check`; a Node project → its typecheck/lint/build script; else `None`.
+pub fn verify_command(root: &std::path::Path) -> Option<Vec<String>> {
+    if root.join("Cargo.toml").exists() {
+        return Some(vec!["cargo".into(), "check".into()]);
+    }
+    if let Ok(text) = std::fs::read_to_string(root.join("package.json")) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+            let scripts = v.get("scripts").and_then(|s| s.as_object());
+            for name in ["typecheck", "lint", "build"] {
+                if scripts.is_some_and(|s| s.contains_key(name)) {
+                    return Some(vec!["npm".into(), "run".into(), name.into()]);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Draft a follow-up prompt asking the agent to fix the errors a verify command
+/// reported. The output is capped so a huge log doesn't balloon the prompt. Costs no
+/// tokens to build; the user sends it, so spend stays explicit.
+pub fn fix_it_prompt(cmd: &[String], failing_output: &str) -> String {
+    const CAP: usize = 4000;
+    let count = failing_output.chars().count();
+    let tail = if count > CAP {
+        format!(
+            "…\n{}",
+            failing_output.chars().skip(count - CAP).collect::<String>()
+        )
+    } else {
+        failing_output.to_string()
+    };
+    format!(
+        "`{}` failed after your changes. Fix the errors it reports, then run it again to confirm:\n\n{}",
+        cmd.join(" "),
+        tail.trim()
+    )
+}
+
 /// A starting-point Conventional Commit line derived purely from a run's changes — the
 /// type and scope (the mechanical part) inferred from paths and line counts, with a subject
 /// listing the touched files. It's a scaffold to edit, not a claim to know intent, and costs
@@ -2063,6 +2104,56 @@ mod tests {
         let isolated = argv_of(false);
         assert!(isolated.iter().any(|a| a == "--unshare-net"));
         assert!(!isolated.iter().any(|a| a == "/run/systemd/resolve"));
+    }
+
+    #[test]
+    fn verify_command_detects_rust_then_node_scripts() {
+        let d = std::env::temp_dir().join(format!("lect-vc-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&d).unwrap();
+        // Rust wins when Cargo.toml is present
+        std::fs::write(d.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        assert_eq!(
+            verify_command(&d),
+            Some(vec!["cargo".into(), "check".into()])
+        );
+        std::fs::remove_file(d.join("Cargo.toml")).unwrap();
+        // Node: typecheck preferred over build
+        std::fs::write(
+            d.join("package.json"),
+            r#"{"scripts":{"build":"vite build","typecheck":"tsc"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            verify_command(&d),
+            Some(vec!["npm".into(), "run".into(), "typecheck".into()])
+        );
+        // Node: falls back to build when that's all there is
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"build":"vite"}}"#).unwrap();
+        assert_eq!(
+            verify_command(&d),
+            Some(vec!["npm".into(), "run".into(), "build".into()])
+        );
+        // Nothing recognizable
+        std::fs::remove_file(d.join("package.json")).unwrap();
+        assert_eq!(verify_command(&d), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn fix_it_prompt_formats_and_caps_output() {
+        let p = fix_it_prompt(
+            &["cargo".into(), "check".into()],
+            "error[E0308]: mismatched types",
+        );
+        assert!(p.contains("`cargo check` failed"));
+        assert!(p.contains("E0308"));
+        // a huge log is capped (and marked with an ellipsis)
+        let capped = fix_it_prompt(
+            &["npm".into(), "run".into(), "tsc".into()],
+            &"x".repeat(9000),
+        );
+        assert!(capped.chars().count() < 9000);
+        assert!(capped.contains('…'));
     }
 
     #[test]

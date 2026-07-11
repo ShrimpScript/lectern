@@ -176,6 +176,10 @@ enum Cmd {
         /// Write a machine-readable run report (tokens, tool calls, routing) to this JSON file.
         #[arg(long)]
         metrics_out: Option<PathBuf>,
+        /// After --apply, run the project's build/type check (cargo check / npm run
+        /// typecheck) and, if it fails, draft a fix-it follow-up to send.
+        #[arg(long)]
+        verify: bool,
     },
     /// Show the adaptive context Lectern would send for a prompt (the "why" inspector).
     Context {
@@ -375,6 +379,7 @@ fn run() -> Result<()> {
             fallback_model,
             retry_after,
             metrics_out,
+            verify,
         } => cmd_run(
             prompt.join(" "),
             &backend,
@@ -386,6 +391,7 @@ fn run() -> Result<()> {
                 model,
                 yolo,
                 fallback_model,
+                verify,
             },
             retry_after,
             metrics_out,
@@ -491,6 +497,7 @@ fn cmd_learn_system() -> Result<()> {
             model: m,
             yolo: true,
             fallback_model: None,
+            verify: false,
         };
         pick_backend(b, &flags).unwrap_or_else(|_| {
             Box::new(MockBackend {
@@ -552,6 +559,7 @@ fn cmd_conduct(
             model: if routed { m } else { pinned_model.clone() },
             yolo,
             fallback_model: None,
+            verify: false,
         };
         pick_backend(use_backend, &flags).unwrap_or_else(|_| {
             Box::new(MockBackend {
@@ -621,6 +629,7 @@ struct RunFlags {
     model: Option<String>,
     yolo: bool,
     fallback_model: Option<String>,
+    verify: bool,
 }
 
 fn make_claude(flags: &RunFlags) -> Result<Box<dyn Backend>> {
@@ -715,6 +724,54 @@ fn pick_backend(name: &str, flags: &RunFlags) -> Result<Box<dyn Backend>> {
                 "unknown backend: {other} (try: auto, claude-code, antigravity, opencode, openrouter, ollama, mock)"
             )
         }
+    }
+}
+
+/// After an applied run, run the project's own build/type check (free — no tokens,
+/// not a live agent) and, if it fails, draft a fix-it follow-up for the user to send.
+fn run_verify(root: &std::path::Path) {
+    let Some(cmd) = lectern_engine::backend::verify_command(root) else {
+        println!(
+            "{}",
+            dim("verify: no build/type check detected for this project")
+        );
+        return;
+    };
+    println!("{}", dim(&format!("verify: running `{}` …", cmd.join(" "))));
+    match std::process::Command::new(&cmd[0])
+        .args(&cmd[1..])
+        .current_dir(root)
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            println!(
+                "{GREEN}✓{RESET} {}",
+                dim(&format!("`{}` passed", cmd.join(" ")))
+            )
+        }
+        Ok(o) => {
+            let mut combined = String::from_utf8_lossy(&o.stderr).into_owned();
+            combined.push_str(&String::from_utf8_lossy(&o.stdout));
+            println!(
+                "{RED}✗{RESET} {}",
+                dim(&format!(
+                    "`{}` reported problems — draft a fix-it follow-up:",
+                    cmd.join(" ")
+                ))
+            );
+            println!(
+                "{CYAN}{}{RESET}",
+                lectern_engine::backend::fix_it_prompt(&cmd, combined.trim())
+            );
+            println!(
+                "{}",
+                dim("  send that as a prompt (add --apply) to have the agent fix it.")
+            );
+        }
+        Err(e) => println!(
+            "{}",
+            dim(&format!("verify: couldn't run `{}`: {e}", cmd.join(" ")))
+        ),
     }
 }
 
@@ -852,6 +909,9 @@ fn cmd_run(
         );
         if result.applied {
             println!("{GREEN}✓ applied to disk{RESET}");
+            if flags.verify {
+                run_verify(&ws.root);
+            }
         } else {
             println!(
                 "{}",
