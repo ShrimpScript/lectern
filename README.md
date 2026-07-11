@@ -52,6 +52,10 @@ and adds what they don't have on their own:
   filesystem is read-only), so an injected instruction stays a bad transcript
   instead of an escape; `LECTERN_SANDBOX_NET=off` additionally cuts the network.
   Off by default.
+- **Skills are scanned on import** — importing a skill (including an external
+  `SKILL.md`) runs a static red-flag scan and surfaces what it finds; by default it
+  warns and still imports (your machine, your call), and `LECTERN_SKILL_STRICT=1`
+  refuses a hard-flagged one.
 
 ## Repo layout
 ```

@@ -11,6 +11,11 @@ Lectern follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 ## [Unreleased]
 
 ### Added
+- **Skills are scanned on import.** Importing a skill — including an external `SKILL.md` from the
+  ecosystem — now runs the static red-flag scan (destructive shell, secret exfiltration,
+  prompt-injection markers) and surfaces its findings. By default it **warns and still imports**
+  (your machine, your call); `LECTERN_SKILL_STRICT=1` refuses a hard-flagged skill. The
+  token-spending model audit stays publish-only. `lectern skills import` prints the result.
 - **Opt-in run sandbox (Linux).** Set `LECTERN_SANDBOX=1` to run an agent's backend inside a
   [bubblewrap](https://github.com/containers/bubblewrap) sandbox that confines writes to the
   workspace — the rest of the filesystem is read-only — so an injected instruction that lands
