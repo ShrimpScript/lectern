@@ -1543,7 +1543,8 @@ fn cmd_daemon_status() -> Result<()> {
 
     // The point of this command: is the scheduler daemon alive?
     let sock = lecternd_socket_path();
-    if daemon_alive(&sock) {
+    let alive = daemon_alive(&sock);
+    if alive {
         println!(
             "  {GREEN}●{RESET} lecternd running {}",
             dim(&format!("at {}", sock.to_string_lossy()))
@@ -1583,8 +1584,66 @@ fn cmd_daemon_status() -> Result<()> {
         }
     }
 
+    // A2A (Agent2Agent) interop: the inbound endpoint is a daemon feature (only the
+    // running daemon knows its state), so query it; outbound peers come from config.
+    if alive {
+        if let Some(a2a) = query_daemon_status(&sock).and_then(|s| s.get("a2a").cloned()) {
+            if a2a
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                let addr = a2a.get("addr").and_then(|v| v.as_str()).unwrap_or("?");
+                println!(
+                    "  {GREEN}●{RESET} A2A endpoint {}",
+                    dim(&format!("on http://{addr} (loopback-only)"))
+                );
+            } else {
+                println!(
+                    "  {}",
+                    dim("A2A endpoint off (enable the daemon with LECTERN_A2A=1)")
+                );
+            }
+        }
+    }
+    let peers = lectern_engine::a2a::load_peers();
+    if !peers.is_empty() {
+        println!(
+            "  {}",
+            dim(&format!(
+                "{} A2A peer(s) configured for Conductor delegation",
+                peers.len()
+            ))
+        );
+    }
+
     println!("  {}", dim("provider/backend status → `lectern doctor`"));
     Ok(())
+}
+
+/// Ask the running daemon for its `status` object (used to surface A2A endpoint
+/// state, which only the daemon process knows). Returns the JSON-RPC `result`.
+#[cfg(unix)]
+fn query_daemon_status(sock: &std::path::Path) -> Option<serde_json::Value> {
+    use std::io::{BufRead, BufReader, Write};
+    let stream = std::os::unix::net::UnixStream::connect(sock).ok()?;
+    let timeout = Some(std::time::Duration::from_millis(500));
+    let _ = stream.set_read_timeout(timeout);
+    let _ = stream.set_write_timeout(timeout);
+    let mut writer = stream.try_clone().ok()?;
+    writeln!(writer, r#"{{"jsonrpc":"2.0","id":1,"method":"status"}}"#).ok()?;
+    let mut line = String::new();
+    let mut reader = BufReader::new(stream);
+    reader.read_line(&mut line).ok()?;
+    serde_json::from_str::<serde_json::Value>(line.trim())
+        .ok()?
+        .get("result")
+        .cloned()
+}
+
+#[cfg(not(unix))]
+fn query_daemon_status(_sock: &std::path::Path) -> Option<serde_json::Value> {
+    None
 }
 
 /// True when a live daemon answers ping on the socket (a socket FILE alone can

@@ -10,6 +10,20 @@ Lectern follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 
 ## [Unreleased]
 
+### Added
+- **Local Agent2Agent (A2A) interop.** Lectern can now exchange work with other A2A agents
+  on your machine — A2A (v1.0) is the inter-agent standard that complements MCP. It is
+  **off by default, loopback-only, and opt-in**:
+  - **As an agent**, the daemon can serve an A2A endpoint (`lecternd` with `LECTERN_A2A=1`):
+    an agent card at `/.well-known/agent-card.json`, plus `message/send`, `tasks/get`, and
+    `tasks/cancel`. An inbound task runs a Lectern turn (never auto-applying to your files)
+    and reports progress as a proper A2A task.
+  - **As a client**, the Conductor can delegate a plan step to a configured local peer
+    (`~/.lectern/a2a-peers.json`, selected with `LECTERN_A2A_DELEGATE`), folding the peer's
+    result back into the run.
+  - `lectern daemon status` reports whether the endpoint is on and how many peers are
+    configured.
+
 ## [0.8.0] - 2026-07-11
 
 ### Removed

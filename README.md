@@ -42,7 +42,11 @@ and adds what they don't have on their own:
   skills, and a graphify code-graph — fed into every session, so agents start
   knowing your repo and conventions instead of re-exploring them.
 - **Local-first execution** — everything runs on your machine and your keys stay
-  local; the cloud only ever sees counts + ciphertext.
+  local; nothing leaves your machine.
+- **Local agent interop (A2A)** — optionally speak the Agent2Agent standard with
+  other agents on your machine: the daemon can serve Lectern as a local A2A agent,
+  and the Conductor can delegate a step to a local A2A peer. Off by default,
+  loopback-only, opt-in.
 
 ## Repo layout
 ```

@@ -441,6 +441,7 @@ fn handle(stream: Box<dyn Duplex>) -> Result<()> {
                 "status": "ok",
                 "version": env!("CARGO_PKG_VERSION"),
                 "data_dir": lectern_engine::data_dir().to_string_lossy(),
+                "a2a": a2a::status_json(),
             }),
             "ping" => serde_json::json!("pong"),
             // ── TUI IPC: read-only session + model surface ──────
@@ -624,6 +625,18 @@ mod a2a {
             return None;
         }
         Some(addr)
+    }
+
+    /// A snapshot of A2A state for the daemon's `status` RPC: whether the inbound
+    /// endpoint is enabled (and where), plus how many outbound peers are configured.
+    pub fn status_json() -> serde_json::Value {
+        let peers = lectern_engine::a2a::load_peers().len();
+        match configured_addr() {
+            Some(addr) => {
+                serde_json::json!({ "enabled": true, "addr": addr.to_string(), "peers": peers })
+            }
+            None => serde_json::json!({ "enabled": false, "addr": null, "peers": peers }),
+        }
     }
 
     fn json_header() -> tiny_http::Header {
