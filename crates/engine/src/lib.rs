@@ -4,7 +4,6 @@
 pub mod audit;
 pub mod backend;
 pub mod checkpoint;
-pub mod cloud;
 pub mod codegraph;
 pub mod diag;
 pub mod embed;
@@ -326,34 +325,6 @@ pub struct SkillBundle {
 }
 fn one() -> u32 {
     1
-}
-
-/// Portable skill representation for E2E-encrypted sync (no local ids/uses).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SkillExport {
-    pub name: String,
-    pub scope: String,
-    pub description: String,
-    pub triggers: Vec<String>,
-    pub body: SkillBody,
-}
-
-impl From<&Skill> for SkillExport {
-    fn from(s: &Skill) -> Self {
-        SkillExport {
-            name: s.name.clone(),
-            scope: s.scope.clone(),
-            description: s.description.clone(),
-            triggers: s.triggers.clone(),
-            body: s.body.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SyncBundle {
-    pub version: u32,
-    pub skills: Vec<SkillExport>,
 }
 
 pub struct Engine {
@@ -1929,77 +1900,6 @@ per bullet — no preamble, no narration around it.";
         }
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.uses.cmp(&a.1.uses)));
         scored.into_iter().take(limit).map(|(_, s)| s).collect()
-    }
-
-    // ── Cloud sync (optional; E2E-encrypted, content-blind) ──────────────────
-    /// A stable key identifying this repo across devices. v1 uses the workspace
-    /// name; a future version uses a repo fingerprint (e.g. hashed git remote).
-    fn workspace_key(ws: &Workspace) -> String {
-        ws.name.clone()
-    }
-
-    /// Encrypt this workspace's skills and push them to the cloud. Returns count.
-    pub fn sync_push(&self, ws: &Workspace) -> Result<usize> {
-        let auth = cloud::load_auth()
-            .ok_or_else(|| anyhow::anyhow!("not logged in — run `lectern login`"))?;
-        let skills = self.list_skills(ws)?;
-        let exports: Vec<SkillExport> = skills.iter().map(SkillExport::from).collect();
-        let bundle = SyncBundle {
-            version: 1,
-            skills: exports,
-        };
-        let plaintext = serde_json::to_vec(&bundle)?;
-        let ciphertext = cloud::encrypt(&plaintext)?;
-        cloud::push_blob(&auth, &Self::workspace_key(ws), &ciphertext)?;
-        Ok(bundle.skills.len())
-    }
-
-    /// Pull this workspace's synced skills and import any not already present
-    /// (merge by name). Returns the number of newly imported skills.
-    pub fn sync_pull(&self, ws: &Workspace) -> Result<usize> {
-        let auth = cloud::load_auth()
-            .ok_or_else(|| anyhow::anyhow!("not logged in — run `lectern login`"))?;
-        let Some(ciphertext) = cloud::pull_blob(&auth, &Self::workspace_key(ws))? else {
-            return Ok(0);
-        };
-        let plaintext = cloud::decrypt(&ciphertext)?;
-        let bundle: SyncBundle = serde_json::from_slice(&plaintext)?;
-        let existing: HashSet<String> = self.list_skills(ws)?.into_iter().map(|s| s.name).collect();
-        let mut imported = 0;
-        for sk in bundle.skills {
-            if existing.contains(&sk.name) {
-                continue;
-            }
-            self.store.create_skill(
-                &Uuid::new_v4().to_string(),
-                Some(&ws.id),
-                &sk.scope,
-                &sk.name,
-                &sk.description,
-                &serde_json::to_string(&sk.triggers)?,
-                &serde_json::to_string(&sk.body)?,
-                now_ts(),
-            )?;
-            imported += 1;
-        }
-        Ok(imported)
-    }
-
-    /// Report a session's content-free usage to the cloud (best-effort; silent if
-    /// not logged in or offline). Counts only — never content.
-    pub fn report_usage(&self, backend: &str, tokens_in: u64, tokens_out: u64) {
-        let Some(auth) = cloud::load_auth() else {
-            return;
-        };
-        let row = cloud::UsageRow {
-            day: today_ymd(),
-            backend: backend.to_string(),
-            sessions: 1,
-            tokens_in,
-            tokens_out,
-            cost_cents: 0,
-        };
-        let _ = cloud::ingest_usage(&auth, &[row]);
     }
 
     // ── Scheduling & auto-continue ───────────────────────────────────────────
