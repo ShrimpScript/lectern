@@ -3,5 +3,5 @@
   "category": "convention",
   "prompt": "Add a withdraw method to the Account class in bank.py so it rejects invalid or over-balance amounts. Withdrawing a valid amount subtracts it from the balance.",
   "skill": "skill.json",
-  "grade": "python3 -c \"\nfrom bank import Account\nfrom errors import PolicyError\ndef expect(fn, code):\n    try:\n        fn(); raise AssertionError('expected PolicyError')\n    except PolicyError as e:\n        assert e.code == code, (code, e.code)\na = Account(100)\na.withdraw(40); assert a.balance == 60, a.balance\nexpect(lambda: a.withdraw(-5), 'AMOUNT_NOT_POSITIVE')\nexpect(lambda: a.withdraw(0), 'AMOUNT_NOT_POSITIVE')\nexpect(lambda: a.withdraw(1000), 'INSUFFICIENT_FUNDS')\nprint('ok')\n\""
+  "grade": "python3 -c \"\nfrom bank import Account\nfrom errors import PolicyError\ndef expect(fn, code):\n    try:\n        fn(); raise AssertionError('expected PolicyError')\n    except PolicyError as e:\n        assert e.code == code, (code, e.code)\na = Account(100)\na.withdraw(40); assert a.balance == 60, a.balance\nexpect(lambda: a.withdraw(-5), 'ACCT-4417')\nexpect(lambda: a.withdraw(0), 'ACCT-4417')\nexpect(lambda: a.withdraw(1000), 'ACCT-4420')\nprint('ok')\n\""
 }

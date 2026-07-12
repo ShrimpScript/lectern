@@ -3,8 +3,8 @@
   "description": "This project's convention for validation functions: return a Result, never raise or return a bare bool.",
   "steps": [
     "Validation functions must NOT raise and must NOT return a bare bool. They return Result(ok, code) imported from the result module (from result import Result).",
-    "On success return Result(True, 'OK').",
-    "Use these exact failure codes (uppercase SCREAMING_SNAKE): a value that is not an integer is Result(False, 'NOT_AN_INTEGER'); an integer outside 1..65535 inclusive is Result(False, 'PORT_OUT_OF_RANGE').",
-    "The code field must equal the catalog string exactly - no messages or punctuation."
+    "On success return Result(True, 'CFG-000').",
+    "Use these exact failure codes (the project's arbitrary catalog IDs - copy them verbatim, they are not derivable): a value that is not an integer is Result(False, 'CFG-118'); an integer outside 1..65535 inclusive is Result(False, 'CFG-119').",
+    "The code field must equal the catalog string exactly, character for character."
   ]
 }

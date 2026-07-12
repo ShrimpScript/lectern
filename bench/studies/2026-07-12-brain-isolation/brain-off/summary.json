@@ -1,0 +1,18 @@
+{
+  "conductor": {
+    "runs": 4,
+    "graded": 4,
+    "pass_rate": 0.0,
+    "mean_tokens": 1160,
+    "mean_tool_calls": 4.75,
+    "mean_cost_usd": null
+  },
+  "single": {
+    "runs": 4,
+    "graded": 4,
+    "pass_rate": 0.0,
+    "mean_tokens": 702,
+    "mean_tool_calls": 2.5,
+    "mean_cost_usd": null
+  }
+}
