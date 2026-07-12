@@ -22,6 +22,24 @@ remembers, and spends tokens to get a task done. So the questions here are:
   `LECTERN_NO_BRAIN=1`, which skips memory recall and learned-skill matching. This
   isolates the brain's contribution.
 
+### Bare-agent baselines (the scaffolding delta)
+
+Lectern *is* scaffolding: harness choices are known to swing agent scores by 10-20
+points on the same model. So the load-bearing comparison is the same agent, same
+model, **bare vs through Lectern** - what Lectern's context, brain, and orchestration
+add on top. Each bare arm drives the underlying CLI directly, with no Lectern:
+
+- **raw-claude** - `claude -p` in `stream-json` mode. Tool calls are counted for
+  real (one per assistant `tool_use` block); tokens, turns, and `cost_usd` come from
+  the terminal `result` event.
+- **raw-opencode** - `opencode run --format json`. Tokens are summed from
+  `step_finish` parts (same source the engine reads), tool events counted directly.
+- **raw-agy** - `agy -p` autonomous. Antigravity's CLI reports no usage, so this arm
+  contributes pass/fail and wall time only.
+
+All three use subscription auth, not API keys. `raw-opencode` on a free model is $0;
+`raw-claude` and `raw-agy` spend subscription usage and are budget-gated.
+
 ## Metrics
 
 Each run emits a machine-readable report via `lectern --metrics-out`; the runner
@@ -32,9 +50,15 @@ adds the grade:
 | `passed` | the task's deterministic grader exited 0 |
 | `total_tokens` | input + output tokens the run reported |
 | `tool_calls`, `plan_steps` | trajectory shape |
+| `num_turns` | conversation turns (bare arms) - distinct from `tool_calls` |
+| `cost_usd` | dollar cost the CLI reported - the one cross-vendor-comparable figure |
 | `distinct_models`, `review_steps` | whether multi-model routing / cross-review fired |
 | `recalls` | brain signals used (memory recalls + applied skills) |
 | `wall_s` | wall-clock seconds |
+
+Token accounting is *not* comparable across vendors (cache handling differs; agy
+reports nothing), so `mean_tokens` is only meaningful within one backend. For
+cross-vendor comparison use `mean_cost_usd`, which the summary reports per arm.
 
 ## Fairness controls
 
@@ -61,10 +85,14 @@ These matter for reading the results, and are stated plainly rather than buried:
 - **Free models are weak.** Absolute pass rates are low compared to frontier models.
   The signal is the *difference between arms on the same tasks and model*, not the
   absolute score. Do not read these as Lectern's ceiling.
-- **opencode edits files in place.** Because the opencode backend applies edits
-  directly rather than proposing them through Lectern's change pipeline, the
-  `tool_calls`, `file_edits`, and `changes` counters under-report for opencode arms
-  (token count and grader success are unaffected and accurate).
+- **`tool_calls` counts commands, not every tool.** The engine's `tool_calls` is
+  Terminal events (shell commands the agent ran); the bare arms count every tool
+  invocation (reads/edits/commands). So `tool_calls` is a within-arm trajectory
+  indicator, not a cross-arm equalized number - compare arms on `pass_rate`,
+  `cost_usd`, and `wall_s`, which are directly comparable. The Lectern opencode
+  reader now emits a Terminal event for opencode's command tool (previously it read
+  0); opencode still applies file edits in place, so `changes`/`file_edits` under-
+  report for Lectern-driven opencode (grader success and token count are unaffected).
 - **`review_steps` under-reports.** The Conductor's cross-review step does run on
   file-modifying tasks (bugfix, refactor, cross-file - observed in run traces and
   reflected in those tasks' higher token cost), but the review step does not emit a
@@ -98,6 +126,11 @@ cargo build -p lectern
 python3 bench/runner.py --backend mock                 # harness smoke test
 python3 bench/runner.py --backend opencode \
   --model opencode/deepseek-v4-flash-free \
-  --arms single,conductor --repeat 2                    # the $0 study
+  --arms single,conductor,raw-opencode --repeat 2       # the $0 scaffolding delta
 LECTERN_NO_BRAIN=1 python3 bench/runner.py ...          # the brain-off control
+
+# Budget-gated (spends subscription usage): bare vs Lectern on a strong model.
+python3 bench/runner.py --backend claude --model <strong> \
+  --arms raw-claude,single,conductor --repeat 3
+python3 bench/runner.py --backend antigravity --arms raw-agy,single --repeat 3
 ```

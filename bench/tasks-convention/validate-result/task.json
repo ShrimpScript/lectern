@@ -1,0 +1,7 @@
+{
+  "id": "validate-result",
+  "category": "convention",
+  "prompt": "Add a validate_port function to config.py that checks whether a given port string is valid. It should accept the port string and report whether it is acceptable.",
+  "skill": "skill.json",
+  "grade": "python3 -c \"\nfrom config import validate_port\nfrom result import Result\ndef chk(s, ok, code):\n    r = validate_port(s)\n    assert isinstance(r, Result), type(r)\n    assert r.ok is ok and r.code == code, (s, r)\nchk('8080', True, 'CFG-000')\nchk('abc', False, 'CFG-118')\nchk('70000', False, 'CFG-119')\nchk('0', False, 'CFG-119')\nprint('ok')\n\""
+}

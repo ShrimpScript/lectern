@@ -1,0 +1,26 @@
+{
+  "conductor": {
+    "runs": 4,
+    "graded": 4,
+    "pass_rate": 1.0,
+    "mean_tokens": 1737,
+    "mean_tool_calls": 7.75,
+    "mean_cost_usd": null
+  },
+  "raw-claude": {
+    "runs": 4,
+    "graded": 4,
+    "pass_rate": 0.0,
+    "mean_tokens": 902,
+    "mean_tool_calls": 3.75,
+    "mean_cost_usd": 0.1562
+  },
+  "single": {
+    "runs": 4,
+    "graded": 4,
+    "pass_rate": 1.0,
+    "mean_tokens": 1131,
+    "mean_tool_calls": 4.5,
+    "mean_cost_usd": null
+  }
+}

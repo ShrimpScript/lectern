@@ -1,0 +1,26 @@
+{
+  "conductor": {
+    "runs": 28,
+    "graded": 28,
+    "pass_rate": 1.0,
+    "mean_tokens": 27176,
+    "mean_tool_calls": 1.64,
+    "mean_cost_usd": null
+  },
+  "raw-opencode": {
+    "runs": 28,
+    "graded": 28,
+    "pass_rate": 1.0,
+    "mean_tokens": 13608,
+    "mean_tool_calls": 3.79,
+    "mean_cost_usd": null
+  },
+  "single": {
+    "runs": 28,
+    "graded": 28,
+    "pass_rate": 1.0,
+    "mean_tokens": 14729,
+    "mean_tool_calls": 0.79,
+    "mean_cost_usd": null
+  }
+}

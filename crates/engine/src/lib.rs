@@ -1237,6 +1237,13 @@ impl Engine {
                     )
                 {
                     let (rb, rm, rl) = crate::orchestrator::reviewer_for(&run.backend_id);
+                    // Record the review as a routing decision so it's measurable: the
+                    // reviewer is a genuinely distinct model, and `--metrics-out`
+                    // counts a route whose reason mentions "review" as a review step.
+                    sink(AgentEvent::ModelRouted {
+                        model: rm.clone(),
+                        reason: format!("cross-review by {rl}"),
+                    });
                     let reviewer = make_backend(&rb, Some(rm));
                     let review_prompt = format!(
                         "You are a cross-model reviewer. A different model just completed step {}/{} of a task: \"{}\" — {}. Read the files it changed and briefly assess whether it correctly accomplishes the step. List any bugs/issues; if it looks correct, say so. Be concise (max ~4 sentences). Do NOT make changes.",
@@ -1929,9 +1936,9 @@ per bullet — no preamble, no narration around it.";
     /// `<root>/.claude/skills/lectern-<slug>/SKILL.md`, so the agent picks them up
     /// natively. Returns how many were written. Removes stale `lectern-*` skill dirs.
     pub fn sync_skills_to_claude(&self, ws: &Workspace, root: &std::path::Path) -> Result<usize> {
-        let skills = self.list_skills(ws)?;
         let base = root.join(".claude").join("skills");
-        // Clear previously-synced Lectern skills so deletions/renames propagate.
+        // Clear previously-synced Lectern skills so deletions/renames — and brain-off —
+        // propagate; a stale lectern-* dir must never linger for the agent to read.
         if let Ok(rd) = std::fs::read_dir(&base) {
             for e in rd.flatten() {
                 if e.file_name().to_string_lossy().starts_with("lectern-") {
@@ -1939,6 +1946,13 @@ per bullet — no preamble, no narration around it.";
                 }
             }
         }
+        // The persistent brain is off (LECTERN_NO_BRAIN): no learned skill may reach the
+        // agent, including via .claude/skills, which Claude Code reads natively. Gating
+        // recall/matching alone left this path open — the kill-switch must cover it too.
+        if brain_disabled() {
+            return Ok(0);
+        }
+        let skills = self.list_skills(ws)?;
         if skills.is_empty() {
             return Ok(0);
         }

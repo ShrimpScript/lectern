@@ -46,3 +46,7 @@ MEMORY.md
 
 # apps/web lives in the separate lectern-web repo; keep any stray generated files out.
 apps/web/
+
+# Python bytecode from bench/
+__pycache__/
+*.pyc
