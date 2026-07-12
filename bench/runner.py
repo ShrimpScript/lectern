@@ -38,19 +38,22 @@ ARMS = {
                "--apply", "--yolo", "--fast"],
     "conductor": ["conduct", "--backend", "{backend}", "--model", "{model}",
                   "--apply", "--yolo"],
-    # Standalone agent baselines — the agent CLI driven directly, no Lectern.
-    # These measure what Lectern adds (context, brain, orchestration) on top of
-    # the same underlying agent, and use subscription auth (no API keys).
+    # Standalone agent baselines — the underlying agent CLI driven directly, no
+    # Lectern. These isolate the *scaffolding delta*: what Lectern adds (context,
+    # brain, orchestration) on top of the SAME agent. Subscription auth, no keys.
     "raw-claude": None,
+    "raw-opencode": None,
+    "raw-agy": None,
 }
 
+# Arms handled by a dedicated runner rather than the Lectern CLI template.
+RAW_ARMS = {"raw-claude", "raw-opencode", "raw-agy"}
 
-def run_raw_claude(task, ws, metrics_path, env, timeout, model):
-    """`claude -p` headless with JSON output — the no-Lectern baseline."""
-    argv = ["claude", "-p", task["prompt"], "--output-format", "json",
-            "--dangerously-skip-permissions"]
-    if model:
-        argv += ["--model", model]
+
+def _capture(argv, ws, env, timeout):
+    """Run argv in ws with a hard timeout, killing the whole process group on
+    expiry (the agent CLI spawns a backend as a grandchild that must die too).
+    Returns (exit_code, stdout, stderr, wall_seconds)."""
     t0 = time.time()
     proc = subprocess.Popen(argv, cwd=ws, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, env=env,
@@ -65,23 +68,119 @@ def run_raw_claude(task, ws, metrics_path, env, timeout, model):
             pass
         out, err = proc.communicate()
         rc, err = 124, (err or "") + " TIMEOUT"
-    wall = round(time.time() - t0, 2)
-    # Translate the CLI's result JSON into the same metrics shape.
+    return rc, out or "", err or "", round(time.time() - t0, 2)
+
+
+def run_raw_claude(task, ws, metrics_path, env, timeout, model):
+    """`claude -p` headless, stream-json — the no-Lectern Claude Code baseline.
+
+    stream-json (not the summary `json`) so tool calls are counted for real:
+    each assistant `tool_use` content block is one tool call — the previous code
+    mislabelled `num_turns` (conversation turns) as tool calls. Usage, turn
+    count, and cost come from the terminal `result` event."""
+    argv = ["claude", "-p", task["prompt"], "--output-format", "stream-json",
+            "--verbose", "--dangerously-skip-permissions"]
+    if model:
+        argv += ["--model", model]
+    rc, out, err, wall = _capture(argv, ws, env, timeout)
     metrics = {"mode": "raw-claude", "backend": "claude-cli", "success": rc == 0}
-    try:
-        d = json.loads(out)
-        u = d.get("usage", {})
+    tool_calls = 0
+    result = None
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        etype = ev.get("type")
+        if etype == "assistant":
+            content = ev.get("message", {}).get("content", [])
+            if isinstance(content, list):
+                tool_calls += sum(1 for b in content if isinstance(b, dict)
+                                  and b.get("type") == "tool_use")
+        elif etype == "result":
+            result = ev
+    if result is not None:
+        u = result.get("usage", {}) or {}
         metrics["input_tokens"] = u.get("input_tokens", 0)
         metrics["output_tokens"] = u.get("output_tokens", 0)
         metrics["total_tokens"] = metrics["input_tokens"] + metrics["output_tokens"]
         metrics["cache_read_tokens"] = u.get("cache_read_input_tokens", 0)
         metrics["cache_creation_tokens"] = u.get("cache_creation_input_tokens", 0)
-        metrics["tool_calls"] = d.get("num_turns")
-        metrics["wall_ms"] = d.get("duration_ms", int(wall * 1000))
-    except (json.JSONDecodeError, TypeError):
-        metrics["error"] = "unparseable CLI output"
+        metrics["tool_calls"] = tool_calls
+        metrics["num_turns"] = result.get("num_turns")
+        metrics["cost_usd"] = result.get("total_cost_usd")
+        metrics["wall_ms"] = result.get("duration_ms", int(wall * 1000))
+        metrics["result_subtype"] = result.get("subtype")
+        # A max-turns / error terminal event means the agent didn't finish clean.
+        if result.get("is_error") or result.get("subtype") not in (None, "success"):
+            metrics["success"] = False
+    else:
+        metrics["error"] = "no result event in stream"
     metrics_path.write_text(json.dumps(metrics, indent=2))
-    return rc, wall, (err or "")[-500:]
+    return rc, wall, err[-500:]
+
+
+def run_raw_opencode(task, ws, metrics_path, env, timeout, model):
+    """`opencode run --format json` headless — the no-Lectern OpenCode baseline.
+
+    Mirrors the engine's OpenCode reader exactly: NDJSON events, tokens summed
+    from `step_finish` parts. Same telemetry source Lectern sees, so the bare-vs-
+    Lectern comparison is apples-to-apples. tool_calls is best-effort (opencode
+    surfaces tool use inconsistently across versions) and may be null."""
+    argv = ["opencode", "run", "--format", "json"]
+    if model:
+        argv += ["-m", model]
+    argv.append(task["prompt"])
+    rc, out, err, wall = _capture(argv, ws, env, timeout)
+    metrics = {"mode": "raw-opencode", "backend": "opencode-cli", "success": rc == 0}
+    inp = outp = steps = tools = 0
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        etype = ev.get("type", "")
+        if etype == "step_finish":
+            steps += 1
+            tok = ev.get("part", {}).get("tokens", {}) or {}
+            inp += tok.get("input", 0) or 0
+            outp += tok.get("output", 0) or 0
+        elif etype in ("tool", "tool_use", "tool_call"):
+            tools += 1
+    metrics["input_tokens"] = inp
+    metrics["output_tokens"] = outp
+    metrics["total_tokens"] = inp + outp
+    metrics["steps"] = steps
+    metrics["tool_calls"] = tools or None
+    metrics["wall_ms"] = int(wall * 1000)
+    metrics_path.write_text(json.dumps(metrics, indent=2))
+    return rc, wall, err[-500:]
+
+
+def run_raw_agy(task, ws, metrics_path, env, timeout, model):
+    """`agy -p` headless autonomous — the no-Lectern Antigravity baseline.
+
+    Antigravity's CLI emits no usage telemetry, so tokens/tool_calls are null:
+    this arm contributes only pass/fail (from the grader) and wall time."""
+    argv = ["agy", "-p", task["prompt"], "--add-dir", str(ws),
+            "--dangerously-skip-permissions"]
+    if model:
+        argv += ["--model", model]
+    rc, out, err, wall = _capture(argv, ws, env, timeout)
+    metrics = {"mode": "raw-agy", "backend": "antigravity-cli", "success": rc == 0,
+               "input_tokens": None, "output_tokens": None, "total_tokens": None,
+               "tool_calls": None, "wall_ms": int(wall * 1000),
+               "note": "antigravity CLI emits no usage telemetry"}
+    if not out.strip():
+        metrics["error"] = "no output"
+    metrics_path.write_text(json.dumps(metrics, indent=2))
+    return rc, wall, err[-500:]
 
 
 def load_tasks(only_ids):
@@ -119,6 +218,10 @@ def run_arm(lectern, task, arm, backend, model, ws, metrics_path, env, timeout):
     """Invoke the CLI for one arm; return (exit_code, wall_seconds, stderr_tail)."""
     if arm == "raw-claude":
         return run_raw_claude(task, ws, metrics_path, env, timeout, model)
+    if arm == "raw-opencode":
+        return run_raw_opencode(task, ws, metrics_path, env, timeout, model)
+    if arm == "raw-agy":
+        return run_raw_agy(task, ws, metrics_path, env, timeout, model)
     tmpl = ARMS[arm]
     argv = [lectern]
     i = 0
@@ -212,11 +315,16 @@ def main():
                     metrics = json.loads(mfile.read_text()) if mfile.exists() else {}
                     row = {
                         "task": task["id"], "category": task.get("category", ""),
-                        "arm": arm, "rep": rep, "backend": args.backend,
+                        "arm": arm, "rep": rep,
+                        # raw arms record the real CLI they drove, not --backend.
+                        "backend": metrics.get("backend", args.backend),
                         "brain": args.brain, "exit_code": rc, "wall_s": wall,
                         "passed": passed,
                         "total_tokens": metrics.get("total_tokens"),
                         "tool_calls": metrics.get("tool_calls"),
+                        "num_turns": metrics.get("num_turns"),
+                        "cost_usd": metrics.get("cost_usd"),
+                        "steps": metrics.get("steps"),
                         "plan_steps": metrics.get("plan_steps"),
                         "distinct_models": metrics.get("distinct_models"),
                         "review_steps": metrics.get("review_steps"),
@@ -245,20 +353,25 @@ def write_summary(outdir, rows):
         passes = [r for r in graded if r["passed"]]
         toks = [r["total_tokens"] for r in rs if r["total_tokens"] is not None]
         tools = [r["tool_calls"] for r in rs if r["tool_calls"] is not None]
+        costs = [r["cost_usd"] for r in rs if r.get("cost_usd") is not None]
         agg[arm] = {
             "runs": len(rs),
             "graded": len(graded),
             "pass_rate": round(len(passes) / len(graded), 3) if graded else None,
             "mean_tokens": round(sum(toks) / len(toks)) if toks else None,
             "mean_tool_calls": round(sum(tools) / len(tools), 2) if tools else None,
+            # Dollars are the one figure comparable across vendors — token
+            # accounting differs (cache handling, agy reports nothing at all).
+            "mean_cost_usd": round(sum(costs) / len(costs), 4) if costs else None,
         }
     (outdir / "summary.json").write_text(json.dumps(agg, indent=2))
     lines = ["# Benchmark summary", "",
-             "| arm | runs | pass rate | mean tokens | mean tool calls |",
-             "|---|---|---|---|---|"]
+             "| arm | runs | pass rate | mean tokens | mean tool calls | mean $ |",
+             "|---|---|---|---|---|---|"]
     for arm, a in agg.items():
         lines.append(f"| {arm} | {a['runs']} | {a['pass_rate']} | "
-                     f"{a['mean_tokens']} | {a['mean_tool_calls']} |")
+                     f"{a['mean_tokens']} | {a['mean_tool_calls']} | "
+                     f"{a['mean_cost_usd']} |")
     (outdir / "summary.md").write_text("\n".join(lines) + "\n")
 
 
