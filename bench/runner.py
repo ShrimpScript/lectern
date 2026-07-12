@@ -183,9 +183,9 @@ def run_raw_agy(task, ws, metrics_path, env, timeout, model):
     return rc, wall, err[-500:]
 
 
-def load_tasks(only_ids):
+def load_tasks(only_ids, task_dir):
     tasks = []
-    tdir = BENCH / "tasks"
+    tdir = Path(task_dir)
     if not tdir.exists():
         return tasks
     for d in sorted(tdir.iterdir()):
@@ -212,6 +212,49 @@ def seed_workspace(task, ws):
          "commit", "-qm", "seed", "--allow-empty"],
         cwd=ws, check=True,
     )
+
+
+def seed_brain(task, lectern):
+    """Convention tasks (those with a `skill`) need the brain to hold that skill.
+
+    Build an isolated HOME whose fresh .lectern has the skill imported, and whose
+    auth/config dirs symlink to the real home so backends still authenticate. The
+    real ~/.lectern is never touched. Returns (env_overrides, home_or_None); the
+    caller removes home_or_None when the task is done. Non-convention tasks return
+    ({}, None) and run against the normal environment, exactly as before."""
+    skill = task.get("skill")
+    if not skill:
+        return {}, None
+    real = Path.home()
+    home = Path(tempfile.mkdtemp(prefix="lectern-brain-"))
+    # Symlink backend auth/config into the temp HOME so claude/opencode/agy still
+    # authenticate — but NOT Lectern's own data. The brain must be fresh so only the
+    # seeded skill is present, so we never expose ~/.lectern or the legacy brain at
+    # ~/.local/share/lectern (ProjectDirs) — importing under HOME=temp writes a fresh
+    # ~/.lectern and, with no legacy dir to migrate from, it stays clean.
+    for name in (".opencode", ".config", ".claude", ".claude.json", ".gitconfig"):
+        src = real / name
+        if src.exists():
+            try:
+                (home / name).symlink_to(src)
+            except OSError:
+                pass
+    # opencode's auth lives at ~/.local/share/opencode; link just that subtree so
+    # ~/.local/share/lectern (the legacy brain) is never reachable.
+    oc_auth = real / ".local" / "share" / "opencode"
+    if oc_auth.exists():
+        (home / ".local" / "share").mkdir(parents=True, exist_ok=True)
+        try:
+            (home / ".local" / "share" / "opencode").symlink_to(oc_auth)
+        except OSError:
+            pass
+    env = dict(os.environ, HOME=str(home))
+    r = subprocess.run([lectern, "skills", "import", str(task["_dir"] / skill)],
+                       env=env, capture_output=True, text=True, timeout=90)
+    if r.returncode != 0:
+        print(f"  [warn] skill seed failed for {task['id']}: "
+              f"{(r.stderr or r.stdout)[-200:]}")
+    return {"HOME": str(home)}, home
 
 
 def run_arm(lectern, task, arm, backend, model, ws, metrics_path, env, timeout):
@@ -273,6 +316,8 @@ def main():
                     help="backend passed to the CLI (mock | opencode | auto | ...)")
     ap.add_argument("--model", default="", help="model id for the single arm")
     ap.add_argument("--tasks", default="", help="comma list of task ids (default: all)")
+    ap.add_argument("--task-dir", default=str(BENCH / "tasks"),
+                    help="task directory (e.g. bench/tasks-convention for the brain suite)")
     ap.add_argument("--repeat", type=int, default=1, help="runs per (arm,task)")
     ap.add_argument("--timeout", type=int, default=300, help="per-run seconds")
     ap.add_argument("--grade-timeout", type=int, default=120)
@@ -284,9 +329,9 @@ def main():
 
     arms = [a.strip() for a in args.arms.split(",") if a.strip()]
     only = {t.strip() for t in args.tasks.split(",") if t.strip()}
-    tasks = load_tasks(only)
+    tasks = load_tasks(only, args.task_dir)
     if not tasks:
-        raise SystemExit("no tasks found under bench/tasks/")
+        raise SystemExit(f"no tasks found under {args.task_dir}")
     if not Path(args.lectern).exists():
         raise SystemExit(f"lectern binary not found: {args.lectern} "
                          "(build with `cargo build -p lectern` or set LECTERN_BIN)")
@@ -303,40 +348,50 @@ def main():
 
     rows = []
     for task in tasks:
-        for arm in arms:
-            for rep in range(args.repeat):
-                with tempfile.TemporaryDirectory(prefix="lectern-bench-") as ws:
-                    ws = Path(ws)
-                    seed_workspace(task, ws)
-                    mfile = outdir / f"{task['id']}__{arm}__r{rep}.metrics.json"
-                    rc, wall, err = run_arm(args.lectern, task, arm, args.backend,
-                                            args.model, ws, mfile, env, args.timeout)
-                    passed = grade(task, ws, args.grade_timeout)
-                    metrics = json.loads(mfile.read_text()) if mfile.exists() else {}
-                    row = {
-                        "task": task["id"], "category": task.get("category", ""),
-                        "arm": arm, "rep": rep,
-                        # raw arms record the real CLI they drove, not --backend.
-                        "backend": metrics.get("backend", args.backend),
-                        "brain": args.brain, "exit_code": rc, "wall_s": wall,
-                        "passed": passed,
-                        "total_tokens": metrics.get("total_tokens"),
-                        "tool_calls": metrics.get("tool_calls"),
-                        "num_turns": metrics.get("num_turns"),
-                        "cost_usd": metrics.get("cost_usd"),
-                        "steps": metrics.get("steps"),
-                        "plan_steps": metrics.get("plan_steps"),
-                        "distinct_models": metrics.get("distinct_models"),
-                        "review_steps": metrics.get("review_steps"),
-                        "recalls": metrics.get("recalls"),
-                        "changes": metrics.get("changes"),
-                        "stderr": err if rc not in (0,) else "",
-                    }
-                    rows.append(row)
-                    mark = {True: "PASS", False: "FAIL", None: "----"}[passed]
-                    print(f"  [{mark}] {task['id']:<22} {arm:<10} "
-                          f"tok={row['total_tokens']} tools={row['tool_calls']} "
-                          f"{wall}s")
+        # Convention tasks need their skill in an isolated brain (real ~/.lectern
+        # untouched); non-convention tasks get ({}, None) and the normal env.
+        brain_env, brain_home = seed_brain(task, args.lectern)
+        run_env = dict(env, **brain_env)
+        try:
+            for arm in arms:
+                for rep in range(args.repeat):
+                    with tempfile.TemporaryDirectory(prefix="lectern-bench-") as ws:
+                        ws = Path(ws)
+                        seed_workspace(task, ws)
+                        mfile = outdir / f"{task['id']}__{arm}__r{rep}.metrics.json"
+                        rc, wall, err = run_arm(args.lectern, task, arm, args.backend,
+                                                args.model, ws, mfile, run_env,
+                                                args.timeout)
+                        passed = grade(task, ws, args.grade_timeout)
+                        metrics = json.loads(mfile.read_text()) if mfile.exists() else {}
+                        row = {
+                            "task": task["id"], "category": task.get("category", ""),
+                            "arm": arm, "rep": rep,
+                            # raw arms record the real CLI they drove, not --backend.
+                            "backend": metrics.get("backend", args.backend),
+                            "brain": args.brain, "skill": bool(task.get("skill")),
+                            "exit_code": rc, "wall_s": wall,
+                            "passed": passed,
+                            "total_tokens": metrics.get("total_tokens"),
+                            "tool_calls": metrics.get("tool_calls"),
+                            "num_turns": metrics.get("num_turns"),
+                            "cost_usd": metrics.get("cost_usd"),
+                            "steps": metrics.get("steps"),
+                            "plan_steps": metrics.get("plan_steps"),
+                            "distinct_models": metrics.get("distinct_models"),
+                            "review_steps": metrics.get("review_steps"),
+                            "recalls": metrics.get("recalls"),
+                            "changes": metrics.get("changes"),
+                            "stderr": err if rc not in (0,) else "",
+                        }
+                        rows.append(row)
+                        mark = {True: "PASS", False: "FAIL", None: "----"}[passed]
+                        print(f"  [{mark}] {task['id']:<22} {arm:<10} "
+                              f"tok={row['total_tokens']} tools={row['tool_calls']} "
+                              f"{wall}s")
+        finally:
+            if brain_home:
+                shutil.rmtree(brain_home, ignore_errors=True)
 
     (outdir / "rows.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
     write_summary(outdir, rows)

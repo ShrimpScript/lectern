@@ -1,0 +1,10 @@
+{
+  "name": "withdraw account invalid amount policy",
+  "description": "This project's input-validation and error-reporting policy for account operations.",
+  "steps": [
+    "Validate arguments at the top of every public method before mutating any state.",
+    "To reject an operation, raise PolicyError(code) imported from the errors module (from errors import PolicyError). Never raise ValueError or a bare Exception and never return None to signal refusal.",
+    "Use these exact catalog codes (uppercase SCREAMING_SNAKE, nothing else): a zero or negative amount is 'AMOUNT_NOT_POSITIVE'; a withdrawal that exceeds the current balance is 'INSUFFICIENT_FUNDS'.",
+    "PolicyError.code must equal the catalog string exactly - no prefixes, human messages, or punctuation."
+  ]
+}
