@@ -1237,6 +1237,13 @@ impl Engine {
                     )
                 {
                     let (rb, rm, rl) = crate::orchestrator::reviewer_for(&run.backend_id);
+                    // Record the review as a routing decision so it's measurable: the
+                    // reviewer is a genuinely distinct model, and `--metrics-out`
+                    // counts a route whose reason mentions "review" as a review step.
+                    sink(AgentEvent::ModelRouted {
+                        model: rm.clone(),
+                        reason: format!("cross-review by {rl}"),
+                    });
                     let reviewer = make_backend(&rb, Some(rm));
                     let review_prompt = format!(
                         "You are a cross-model reviewer. A different model just completed step {}/{} of a task: \"{}\" — {}. Read the files it changed and briefly assess whether it correctly accomplishes the step. List any bugs/issues; if it looks correct, say so. Be concise (max ~4 sentences). Do NOT make changes.",

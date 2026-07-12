@@ -85,13 +85,14 @@ These matter for reading the results, and are stated plainly rather than buried:
 - **Free models are weak.** Absolute pass rates are low compared to frontier models.
   The signal is the *difference between arms on the same tasks and model*, not the
   absolute score. Do not read these as Lectern's ceiling.
-- **Lectern-driven opencode under-reports tool activity.** The bare `raw-opencode`
-  arm counts tool calls and file edits fine (its stream carries tool events). But
-  when Lectern drives opencode, the engine's stream reader only handles text and
-  step events, dropping the tool events - so `tool_calls`/`changes` read 0 for the
-  Lectern opencode arms while `raw-opencode` shows the real count. That is an engine
-  reader gap, tracked and being fixed, not an opencode limitation (token count and
-  grader success are unaffected either way).
+- **`tool_calls` counts commands, not every tool.** The engine's `tool_calls` is
+  Terminal events (shell commands the agent ran); the bare arms count every tool
+  invocation (reads/edits/commands). So `tool_calls` is a within-arm trajectory
+  indicator, not a cross-arm equalized number - compare arms on `pass_rate`,
+  `cost_usd`, and `wall_s`, which are directly comparable. The Lectern opencode
+  reader now emits a Terminal event for opencode's command tool (previously it read
+  0); opencode still applies file edits in place, so `changes`/`file_edits` under-
+  report for Lectern-driven opencode (grader success and token count are unaffected).
 - **`review_steps` under-reports.** The Conductor's cross-review step does run on
   file-modifying tasks (bugfix, refactor, cross-file - observed in run traces and
   reflected in those tasks' higher token cost), but the review step does not emit a

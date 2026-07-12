@@ -1614,6 +1614,47 @@ impl Backend for OpenCodeBackend {
                         }
                     }
                     "step_start" => {}
+                    "tool_use" => {
+                        // Surface tool activity so `--metrics-out` can count it.
+                        // Command tools map to a Terminal event (a command the agent
+                        // ran); opencode applies file edits in place, so those are
+                        // left to the workspace state rather than proposed here.
+                        let part = ev.get("part");
+                        let tool = part
+                            .and_then(|p| p.get("tool"))
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("");
+                        if matches!(tool, "bash" | "shell" | "run") {
+                            let st = part.and_then(|p| p.get("state"));
+                            let command = st
+                                .and_then(|s| s.get("input"))
+                                .and_then(|i| i.get("command"))
+                                .and_then(|c| c.as_str())
+                                .unwrap_or(tool)
+                                .to_string();
+                            let output: String = st
+                                .and_then(|s| s.get("output"))
+                                .and_then(|o| o.as_str())
+                                .unwrap_or("")
+                                .chars()
+                                .take(2000)
+                                .collect();
+                            let exit_code = if st
+                                .and_then(|s| s.get("status"))
+                                .and_then(|v| v.as_str())
+                                == Some("completed")
+                            {
+                                0
+                            } else {
+                                1
+                            };
+                            sink(AgentEvent::Terminal {
+                                command,
+                                output,
+                                exit_code,
+                            });
+                        }
+                    }
                     other => {
                         crate::diag::log("backend", &format!("opencode event: {other}"));
                     }
