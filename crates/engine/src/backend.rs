@@ -1639,15 +1639,14 @@ impl Backend for OpenCodeBackend {
                                 .chars()
                                 .take(2000)
                                 .collect();
-                            let exit_code = if st
-                                .and_then(|s| s.get("status"))
-                                .and_then(|v| v.as_str())
-                                == Some("completed")
-                            {
-                                0
-                            } else {
-                                1
-                            };
+                            let exit_code =
+                                if st.and_then(|s| s.get("status")).and_then(|v| v.as_str())
+                                    == Some("completed")
+                                {
+                                    0
+                                } else {
+                                    1
+                                };
                             sink(AgentEvent::Terminal {
                                 command,
                                 output,
