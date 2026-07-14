@@ -726,7 +726,13 @@ impl Backend for ClaudeCodeBackend {
             })
         });
 
-        let stdout = child.stdout.take().expect("piped stdout");
+        // stdout was configured as piped just above, so this is effectively an
+        // invariant — but degrade to a clean error rather than panicking if the
+        // child somehow didn't expose it.
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("claude-code produced no stdout to read"))?;
         let reader = BufReader::new(stdout);
         let mut mapper = ClaudeStreamMapper::new();
         for line in reader.lines() {
